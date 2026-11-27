@@ -31,6 +31,8 @@ export interface SolveSpec {
   holeDiameter: (index: number, boreRadius: number) => number;
   /** Smallest diameter the solver may shrink a crowded hole to. */
   holeMinDiameter: number;
+  /** Rounds a shrunk hole down to a drill size, if wanted. */
+  snapDown?: (d: number) => number;
   /** Chimney height (wall thickness at the hole) given bore radius. */
   chimney: (index: number, boreRadius: number) => number;
 }
@@ -214,7 +216,8 @@ export function solveInstrument(spec: SolveSpec): SolveResult {
       const s = Math.max(0, holeS(st, i));
       const r = bodyRadius(spec.body, s, st.Lb);
       const want = spec.holeDiameter(i, r);
-      st.dia[i] = Math.max(Math.min(want, spec.holeMinDiameter), want * shrink[i]);
+      const shrunk = shrink[i] < 1 && spec.snapDown ? spec.snapDown(want * shrink[i]) : want * shrink[i];
+      st.dia[i] = Math.max(Math.min(want, spec.holeMinDiameter), shrunk);
       st.chim[i] = spec.chimney(i, r);
     }
   };
@@ -285,7 +288,8 @@ export function solveInstrument(spec: SolveSpec): SolveResult {
         const crowded = i > 0 && r.x <= lo + 0.01 && r.cents > 0.5;
         if (!crowded || st.dia[i] <= spec.holeMinDiameter + 0.01) break;
         shrink[i] *= 0.88;
-        st.dia[i] = Math.max(spec.holeMinDiameter, st.dia[i] * 0.88);
+        const next = st.dia[i] * 0.88;
+        st.dia[i] = Math.max(spec.holeMinDiameter, spec.snapDown ? spec.snapDown(next) : next);
       }
       guesses[i + 1] = resonance(spec, st, i + 1, guesses[i + 1]) || guesses[i + 1];
     }

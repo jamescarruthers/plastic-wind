@@ -244,6 +244,7 @@ export function resolve(d: Design): Resolved {
     minBody: Math.max(40, body.bellLength + 20),
     holeDiameter,
     holeMinDiameter: d.holeMin,
+    snapDown: d.snapDrill ? (x: number) => Math.floor(x * 2 + 1e-6) / 2 : undefined,
     chimney,
   };
 

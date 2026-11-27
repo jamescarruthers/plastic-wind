@@ -334,7 +334,7 @@ function renderNotes() {
   t.append(tb);
   pane.append(
     el('p', { class: 'hint' }, `Predicted by an acoustic model of the bore and holes. “Overblown” is the next note the same fingering gives when you blow harder — ${r.conical ? 'an octave up on a conical bore' : 'a twelfth up on a cylindrical bore'}.`),
-    t,
+    el('div', { class: 'scroll-x' }, t),
   );
 }
 
@@ -403,7 +403,7 @@ function renderHoles() {
     );
   }
   t.append(tb);
-  pane.append(el('p', { class: 'hint' }, 'Distances run along the bore centre line. Hole 1 is nearest the mouthpiece.'), t);
+  pane.append(el('p', { class: 'hint' }, 'Distances run along the bore centre line. Hole 1 is nearest the mouthpiece.'), el('div', { class: 'scroll-x' }, t));
 }
 
 function renderBore() {
@@ -465,7 +465,7 @@ function renderParts() {
   const extra: HTMLElement[] = [];
   if (r.usePipe) extra.push(el('p', {}, `Cut the pipe to ${fmt(r.pipeLength)} mm.`));
   if (r.dowels?.count) extra.push(el('p', {}, `${r.dowels.count} dowels, ${r.dowels.diameter} mm, cut to ${fmt(r.dowels.length)} mm long.`));
-  pane.append(el('p', { class: 'hint' }, 'Weights assume PLA at 100% infill; real prints weigh less.'), t, ...extra);
+  pane.append(el('p', { class: 'hint' }, 'Weights assume PLA at 100% infill; real prints weigh less.'), el('div', { class: 'scroll-x' }, t), ...extra);
 }
 
 // ---------------------------------------------------------------- audio preview
