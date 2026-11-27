@@ -42,6 +42,11 @@ the bore.
   the other side fold the hole-free upper bore (as on a dulcian or rackett);
   the bell can turn back up, saxophone style.
 
+**Body shape.** A tube that follows the bore, a tube with webs filling the
+bends, a flat slab that follows the bore, or flat blocks: one rectangle per
+loop, leg group and the finger line, with square or rounded corners and the
+inlet socket sunk into the body.
+
 **Printing.**
 - One piece, or two halves split along the bore and glued. The split plane
   runs through the whole bore, so each half prints cut-face down with no

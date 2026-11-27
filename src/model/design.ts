@@ -7,7 +7,12 @@ export type ReedSize = 'clarinet-eb' | 'clarinet-bb' | 'sax-alto' | 'sax-tenor';
 export type DoubleReedSeat = 'straw' | 'oboe' | 'bassoon' | 'custom';
 export type PipeLengthMode = 'none' | 'fixed' | 'auto';
 export type PathMode = 'straight' | 'folded';
-export type BodyStyle = 'tube' | 'web' | 'slab';
+export type BodyStyle = 'tube' | 'web' | 'slab' | 'blocks' | 'rounded';
+
+/** Body shapes with flat front and back faces. */
+export function isFlatStyle(s: BodyStyle): boolean {
+  return s === 'slab' || s === 'blocks' || s === 'rounded';
+}
 export type SplitMode = 'none' | 'halves';
 export type BoreShape = 'round' | 'teardrop';
 

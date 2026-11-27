@@ -2,9 +2,10 @@
 
 export type Vec2 = [number, number];
 
+/** `group` ties pieces into one visual feature (a loop, the folded legs…). */
 export type Piece =
-  | { kind: 'line'; a: Vec2; b: Vec2 }
-  | { kind: 'arc'; c: Vec2; R: number; a0: number; sweep: number }; // angles in radians
+  | { kind: 'line'; a: Vec2; b: Vec2; group?: number }
+  | { kind: 'arc'; c: Vec2; R: number; a0: number; sweep: number; group?: number }; // angles in radians
 
 export function pieceLength(p: Piece): number {
   return p.kind === 'line' ? Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]) : Math.abs(p.sweep) * p.R;
@@ -25,8 +26,8 @@ function pieceAt(p: Piece, u: number): { p: Vec2; t: Vec2 } {
 }
 
 function reversePiece(p: Piece): Piece {
-  if (p.kind === 'line') return { kind: 'line', a: p.b, b: p.a };
-  return { kind: 'arc', c: p.c, R: p.R, a0: p.a0 + p.sweep, sweep: -p.sweep };
+  if (p.kind === 'line') return { kind: 'line', a: p.b, b: p.a, group: p.group };
+  return { kind: 'arc', c: p.c, R: p.R, a0: p.a0 + p.sweep, sweep: -p.sweep, group: p.group };
 }
 
 export class Path {
@@ -95,6 +96,7 @@ export class Path {
 export class Turtle {
   pos: Vec2;
   heading: number; // radians
+  group = 0;
   path = new Path();
 
   constructor(pos: Vec2, heading: number) {
@@ -105,7 +107,7 @@ export class Turtle {
   forward(L: number) {
     if (L <= 1e-9) return;
     const b: Vec2 = [this.pos[0] + Math.cos(this.heading) * L, this.pos[1] + Math.sin(this.heading) * L];
-    this.path.push({ kind: 'line', a: this.pos, b });
+    this.path.push({ kind: 'line', a: this.pos, b, group: this.group });
     this.pos = b;
   }
 
@@ -116,7 +118,7 @@ export class Turtle {
     const ny = Math.cos(this.heading) * left;
     const c: Vec2 = [this.pos[0] + nx * R, this.pos[1] + ny * R];
     const a0 = Math.atan2(this.pos[1] - c[1], this.pos[0] - c[0]);
-    this.path.push({ kind: 'arc', c, R, a0, sweep: angle });
+    this.path.push({ kind: 'arc', c, R, a0, sweep: angle, group: this.group });
     const a1 = a0 + angle;
     this.pos = [c[0] + R * Math.cos(a1), c[1] + R * Math.sin(a1)];
     this.heading += angle;

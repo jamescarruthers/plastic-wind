@@ -153,7 +153,7 @@ export const GROUPS: Group[] = [
     title: 'Body and printing',
     fields: [
       { key: 'wall', label: 'Wall thickness', type: 'number', unit: 'mm', step: 0.1, min: 1.2, max: 10 },
-      { key: 'bodyStyle', label: 'Body shape', type: 'select', options: opt([['tube', 'Tube following the bore'], ['web', 'Tube with webs between bends'], ['slab', 'Flat slab']]) },
+      { key: 'bodyStyle', label: 'Body shape', type: 'select', options: opt([['tube', 'Tube following the bore'], ['web', 'Tube with webs between bends'], ['slab', 'Flat slab following the bore'], ['blocks', 'Blocks (square corners)'], ['rounded', 'Blocks (rounded)']]), help: 'Block bodies hide the folded bore inside one rectangle per loop, and sink the inlet socket into the body.' },
       { key: 'split', label: 'Print as', type: 'select', options: opt([['halves', 'Two halves glued along the bore'], ['none', 'One piece']]) },
       { key: 'boreShape', label: 'Bore cross-section', type: 'select', options: opt([['round', 'Round'], ['teardrop', 'Pointed top (no supports, same area)']]), help: 'A pointed top lets the bore roof print without sagging.' },
       { key: 'dowels', label: 'Alignment dowel holes', type: 'checkbox', show: (d) => d.split === 'halves' },

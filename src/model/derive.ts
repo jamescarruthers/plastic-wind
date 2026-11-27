@@ -1,6 +1,6 @@
 // Turns the user's Design into the numbers the solver and geometry need.
 
-import type { Design } from './design';
+import { isFlatStyle, type Design } from './design';
 import { getPipe, type PipeSize } from './pipes';
 import { midiToFreq, noteToMidi, parseNoteList, scaleNotes } from './notes';
 import type { BodyProfile, HeadSegment, SolveSpec } from '../acoustics/solver';
@@ -45,6 +45,8 @@ export interface Resolved {
   d: Design;
   /** Bore cross-section: round, pointed top and bottom (halves), or pointed top only. */
   section: BoreSection;
+  /** Half thickness of a flat body (slab or blocks). */
+  slabHalf: number;
   pipe: PipeSize;
   usePipe: boolean;
   midi: number[];
@@ -224,9 +226,11 @@ export function resolve(d: Design): Resolved {
   const lyingOnePiece = !split && d.path === 'folded';
   const section: BoreSection = d.boreShape === 'teardrop' ? (split ? 'lemon' : 'drop') : lyingOnePiece ? 'drop' : 'round';
   const pointScale = section === 'round' ? 1 : 1 / Math.sqrt(1 + ((section === 'lemon' ? 2 : 1) * (1 - Math.PI / 4)) / Math.PI);
-  const slabHalf = (section === 'round' ? maxBoreR : maxBoreR * pointScale * Math.SQRT2) + d.wall;
+  let slabHalf = (section === 'round' ? maxBoreR : maxBoreR * pointScale * Math.SQRT2) + d.wall;
+  // Block bodies hold the inlet socket inside them.
+  if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') slabHalf = Math.max(slabHalf, socket.r + Math.max(2.4, d.wall * 0.8));
   const chimney = (i: number, r: number) => {
-    if (d.bodyStyle === 'slab') return slabHalf - (section === 'round' ? r : r * pointScale * Math.SQRT2);
+    if (isFlatStyle(d.bodyStyle)) return slabHalf - (section === 'round' ? r : r * pointScale * Math.SQRT2);
     const back = isBackHole(fingers[nHoles - i - 1] ?? '');
     const pointed = section === 'lemon' || (section === 'drop' && !back);
     return pointed ? d.wall * Math.SQRT2 : d.wall;
@@ -251,6 +255,7 @@ export function resolve(d: Design): Resolved {
   return {
     d,
     section,
+    slabHalf,
     pipe,
     usePipe,
     midi,

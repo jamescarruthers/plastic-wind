@@ -15,6 +15,7 @@ import { isBackHole } from '../model/derive';
 import type { SolveResult } from '../acoustics/solver';
 import { bodyRadius } from '../acoustics/solver';
 import { Path, Turtle, type Vec2 } from './path';
+import { isFlatStyle } from '../model/design';
 
 export interface PlacedHole {
   number: number; // 1 = top
@@ -97,11 +98,13 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
       const arm = extra / 2;
       const slack = (dy - minDy) / 2;
       fl.forward(va + slack);
+      fl.group = 10 + k;
       fl.turn((side * Math.PI) / 2, R);
       fl.forward(arm);
       fl.turn(-side * Math.PI, R);
       fl.forward(arm);
       fl.turn((side * Math.PI) / 2, R);
+      fl.group = 0;
       fl.forward(vb + slack);
       loops++;
       spacings.push({ from: a.number, to: b.number, dy });
@@ -116,10 +119,12 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
       }
       const v = Math.max(0, (dL - 4 * R * th) / 2);
       fl.forward(v);
+      fl.group = 10 + k;
       fl.turn(side * th, R);
       fl.turn(-side * th, R);
       fl.turn(-side * th, R);
       fl.turn(side * th, R);
+      fl.group = 0;
       fl.forward(Math.max(0, dL - v - 4 * R * th));
       loops++;
       spacings.push({ from: a.number, to: b.number, dy: 2 * v + 4 * R * Math.sin(th) });
@@ -140,8 +145,12 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
     // radii, plus the wall between them.
     const rUp = maxR(sB, Lb);
     const rLoops = maxR(sTop, sB);
-    const Rb = Math.max(Rbell0, reach > 0 ? (reach + rLoops + rUp + d.bendWall) / 2 : 0);
+    // Block bodies square off the loops at their outer wall, so the bell
+    // mouth must also clear the wall to stay open.
+    const extraWall = isFlatStyle(d.bodyStyle) ? d.wall + 1 : 0;
+    const Rb = Math.max(Rbell0, reach > 0 ? (reach + rLoops + extraWall + rUp + d.bendWall) / 2 : 0);
     fl.forward(clearBelow);
+    fl.group = 2;
     fl.turn(side * Math.PI, Rb);
     fl.forward(Math.max(0, tail - clearBelow - Math.PI * Rb));
     if (tail - clearBelow - Math.PI * Rb < 0) warnings.push('The bell section is too short to fold; it ends in the bend.');
@@ -167,6 +176,7 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
     if (h > Ru) {
       // Heading up, a left turn (positive) swings to -x: the legs go to the
       // side opposite the loops.
+      up.group = 1;
       for (let k = 0; k < n; k++) {
         up.turn(side * Math.PI, Ru); // over the top, now heading down
         up.forward(h);

@@ -23,6 +23,9 @@ function variants(): [string, Design][] {
     ['double reed straw with wind cap', { ...base, exciter: 'double-reed', doubleReedSeat: 'straw', windcap: true }],
     ['oboe reed, conical, spigot body fit', { ...applyPreset({ ...DEFAULT_DESIGN }, 'oboe', 'oboe'), pipeLengthMode: 'fixed', pipeLength: 60, bodyFit: 'spigot', boreDiameter: 8 }],
     ['adapter for shop mouthpiece', { ...base, singleReedMode: 'adapter' }],
+    ['blocks, folded halves', { ...applyPreset({ ...DEFAULT_DESIGN }, 'crumhorn', 'bass'), bodyStyle: 'blocks' }],
+    ['rounded blocks, dulcian with bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), bodyStyle: 'rounded' }],
+    ['blocks, straight with pipe and spigot fit', { ...base, bodyStyle: 'blocks', pipeLengthMode: 'fixed', pipeLength: 120, bodyFit: 'spigot', matchPipeBore: false, boreDiameter: 10 }],
     ['custom list, no thumb hole', { ...base, rangeMode: 'list', noteList: 'D4 E4 F#4 G4 A4 B4 C#5', thumbHole: false }],
   ];
 }
@@ -61,6 +64,9 @@ describe('bore topology', () => {
     ['straight cylinder', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), split: 'none', segment: false }],
     ['folded with loops and legs', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), split: 'none', segment: false }],
     ['folded conical, bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), split: 'none', segment: false }],
+    ['square blocks, rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'blocks', split: 'none', segment: false }],
+    ['rounded blocks, bass clarinet', { ...applyPreset({ ...DEFAULT_DESIGN }, 'clarinet', 'bass'), bodyStyle: 'rounded', split: 'none', segment: false }],
+    ['rounded blocks, straight chalumeau', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), bodyStyle: 'rounded', split: 'none', segment: false }],
   ];
   it.each(cases)('%s: genus is 1 + number of holes', async (_l, d) => {
     const g = await generate(M, d);
