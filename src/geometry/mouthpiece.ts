@@ -1,0 +1,259 @@
+// Mouthpiece parts. Each is built standing on +z with its outlet end at z = 0,
+// which is also how it should be printed.
+
+import type { Manifold } from 'manifold-3d';
+import type { ManifoldToplevel } from './manifold';
+import type { Resolved } from '../model/derive';
+
+export interface LocalPart {
+  name: string;
+  role: 'mouthpiece' | 'accessory' | 'test';
+  m: Manifold;
+  /** Where this part sits along the mouthpiece axis in the assembled preview. */
+  previewZ: number;
+  flipForPreview?: boolean;
+  note?: string;
+}
+
+export interface MouthpieceBuild {
+  parts: LocalPart[];
+  /** z (in mouthpiece coordinates) of the top end of the inlet pipe, or of the
+   *  body socket bottom when there is no pipe. */
+  pipeTopZ: number;
+}
+
+export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: (m: Manifold) => Manifold): MouthpieceBuild {
+  const { Manifold } = M;
+  const d = res.d;
+  const mp = res.mouthpiece;
+  const seg = Math.max(24, Math.round(d.resolution / 4) * 4);
+  const cyl = (h: number, r0: number, r1 = r0, z = 0) => keep(keep(Manifold.cylinder(h, r0, r1, seg)).translate([0, 0, z]));
+  const ring = (r: number, z: number, n = seg): [number, number, number][] =>
+    Array.from({ length: n }, (_, i) => {
+      const a = (2 * Math.PI * i) / n;
+      return [r * Math.cos(a), r * Math.sin(a), z];
+    });
+  const hull = (pts: (Manifold | [number, number, number])[]) => keep(Manifold.hull(pts));
+  const union = (ms: Manifold[]) => keep(Manifold.union(ms));
+  const sub = (a: Manifold, b: Manifold) => keep(a.subtract(b));
+
+  // ---- Outlet: either a spigot into the body socket, or a socket for the pipe.
+  const sd = mp.outletDepth;
+  let z0: number; // top of the outlet section
+  let outletOuter: number; // outside radius at z0
+  const solids: Manifold[] = [];
+  const cavities: Manifold[] = [];
+  if (mp.outlet === 'spigot') {
+    solids.push(cyl(sd, mp.outletOuterR));
+    // Small lead-in chamfer at the tip.
+    cavities.push(sub(cyl(0.8, mp.outletOuterR + 2), cyl(0.8, mp.outletOuterR - 0.6, mp.outletOuterR)));
+    z0 = sd;
+    outletOuter = mp.outletOuterR;
+  } else {
+    outletOuter = mp.outletOuterR + 2.4;
+    solids.push(cyl(sd + 2, outletOuter));
+    cavities.push(cyl(sd + 1, mp.outletOuterR, mp.outletOuterR, -1));
+    z0 = sd + 2;
+  }
+  const pipeTopZ = mp.outlet === 'spigot' ? 0 : sd;
+  const boreR = mp.outletBoreR;
+  // A 45° cone from the outlet to a wider body, so nothing overhangs.
+  const flare = (toR: number, z: number) => {
+    if (toR <= outletOuter + 0.01) return z;
+    solids.push(hull([...ring(outletOuter, z), ...ring(toR, z + (toR - outletOuter))]));
+    return z + (toR - outletOuter);
+  };
+
+  const parts: LocalPart[] = [];
+
+  if (mp.kind === 'single-reed' && mp.reed) {
+    const reed = mp.reed;
+    const yt = boreR + 1.8; // table plane at y = -yt
+    const Rb = Math.max(Math.sqrt(yt * yt + (reed.width / 2 + 0.6) ** 2) + 0.3, outletOuter);
+    const zb = flare(Rb, z0);
+    const Lm = mp.bodyLength ?? reed.length + 2;
+    const zTip = z0 + Lm;
+    const beak = Math.min(Lm * 0.4, 30);
+    const z1 = zTip - beak;
+    solids.push(cyl(z1 - zb, Rb, Rb, zb));
+    const tipThick = 4;
+    const tipPts: [number, number, number][] = [];
+    for (const x of [-reed.width / 2, reed.width / 2])
+      for (const y of [-yt, -yt + tipThick]) tipPts.push([x, y, zTip]);
+    solids.push(hull([...ring(Rb, z1), ...tipPts]));
+
+    // Table and facing curve: remove everything below y_cut(z).
+    const zf = zTip - reed.facing;
+    const poly: [number, number][] = [[z0 - 1, -yt]];
+    for (let k = 0; k <= 24; k++) {
+      const z = zf + ((zTip + 1 - zf) * k) / 24;
+      const u = (z - zf) / reed.facing;
+      poly.push([z, -yt + reed.tip * u * u]);
+    }
+    poly.push([zTip + 3, -Rb - 20], [z0 - 1, -Rb - 20]);
+    const cut = extrudeYZ(M, poly, 2 * Rb + 20, keep);
+    cavities.push(cut);
+
+    // Window through the table, with a tip rail of 1.5 mm.
+    const zw1 = zTip - 1.5;
+    const zw0 = zw1 - reed.windowL;
+    const wr = reed.windowW / 2;
+    const slot = (z: number) => keep(keep(keep(Manifold.cylinder(10, wr, wr, seg)).rotate([90, 0, 0])).translate([0, -yt + 4, z]));
+    cavities.push(hull([slot(zw0 + wr), slot(zw1 - wr)]));
+    // Chamber and baffle: from the bore up to the window, closing towards the tip.
+    const ch: [number, number, number][] = [...ring(boreR, zw0 - 10)];
+    for (const x of [-wr, wr]) {
+      ch.push([x, -yt - 0.5, zw0], [x, Math.min(boreR * 0.9, Rb - 2.5), zw0]);
+      ch.push([x, -yt - 0.5, zw1 - 1], [x, -yt + 1.2, zw1 - 1]);
+    }
+    cavities.push(hull(ch));
+    cavities.push(cyl(zw0 - 9 + 1, boreR, boreR, -1));
+    // Ligature grooves for a rubber band or cord.
+    for (const zg of [zb + 6, zb + 15]) {
+      cavities.push(sub(cyl(2.5, Rb + 5, Rb + 5, zg), cyl(2.5, Rb - 0.8, Rb - 0.8, zg)));
+    }
+    parts.push({
+      name: 'Mouthpiece (single reed)',
+      role: 'mouthpiece',
+      m: sub(union(solids), union(cavities)),
+      previewZ: 0,
+      note: `Print standing. Sand the table flat on glass. Tip opening ${reed.tip} mm over a ${reed.facing} mm facing.`,
+    });
+  } else if (mp.kind === 'single-reed') {
+    // Adapter for a shop-bought mouthpiece.
+    const shankR = d.adapterShankDiameter / 2 + 0.15;
+    const Ro = shankR + 2.4;
+    const zb = flare(Ro, z0);
+    const zCup = Math.max(zb, z0 + 10);
+    solids.push(cyl(zCup + d.adapterShankDepth - zb, Ro, Ro, zb));
+    cavities.push(cyl(d.adapterShankDepth + 1, shankR, shankR, zCup));
+    cavities.push(cyl(zCup + 1, boreR, boreR, -1));
+    // Ease the step from the shank seat to the bore.
+    cavities.push(hull([...ring(boreR, zCup - Math.max(0, shankR - boreR)), ...ring(shankR - 0.5, zCup + 0.01)]));
+    parts.push({ name: 'Mouthpiece adapter', role: 'mouthpiece', m: sub(union(solids), union(cavities)), previewZ: 0, note: 'Wrap the mouthpiece cork with tape if the fit is loose.' });
+  } else if (mp.kind === 'double-reed' && mp.seat) {
+    const seat = mp.seat;
+    const collarR = Math.max(outletOuter, (seat.topR || 2.6) + 2.4, 6);
+    const zb = flare(collarR, z0);
+    const zWell = z0 + 22;
+    let zTop: number;
+    if (seat.kind === 'bassoon' && seat.bocal) {
+      // Printed bocal tip that the reed slides onto.
+      const b = seat.bocal;
+      zTop = zWell;
+      solids.push(cyl(zTop - zb, collarR, collarR, zb));
+      solids.push(cyl(b.L, b.r1, b.r0, zTop));
+      cavities.push(cyl(zTop + b.L + 2, 1.3, 1.3, zTop - 4));
+      cavities.push(hull([...ring(boreR, 0), ...ring(1.3, zTop - 4)]));
+      cavities.push(cyl(1, boreR, boreR, -1));
+    } else {
+      zTop = zWell + seat.depth;
+      solids.push(cyl(zTop - zb, collarR, collarR, zb));
+      cavities.push(cyl(seat.depth + 1, seat.bottomR, seat.topR, zWell));
+      const reedR = seat.kind === 'oboe' ? 2.35 : Math.max(0.8, seat.bottomR - 0.35);
+      cavities.push(hull([...ring(boreR, 0), ...ring(reedR, zWell + 0.01)]));
+      cavities.push(cyl(1, boreR, boreR, -1));
+    }
+    parts.push({
+      name: 'Reed seat',
+      role: 'mouthpiece',
+      m: sub(union(solids), union(cavities)),
+      previewZ: 0,
+      note: seat.kind === 'straw' ? `Takes a ${d.strawDiameter} mm drinking straw. Flatten 15 mm of one end and cut it to a point.` : undefined,
+    });
+    if (mp.windcap) {
+      const capSock = collarR + 0.15;
+      const innerR = Math.max(mp.windcap.innerR, capSock);
+      const outerR = innerR + 2;
+      const sockLen = 12;
+      const L = mp.windcap.length;
+      const mouthR = 3;
+      const zc = sockLen + L;
+      const cs: Manifold[] = [cyl(zc, outerR), hull([...ring(outerR, zc), ...ring(mouthR + 2, zc + (outerR - mouthR - 2))])];
+      const top = zc + (outerR - mouthR - 2);
+      cs.push(cyl(8, mouthR + 2, mouthR + 2, top));
+      const cc: Manifold[] = [cyl(sockLen + 0.01, capSock, capSock, -1), cyl(L, innerR, innerR, sockLen)];
+      cc.push(hull([...ring(innerR, zc - 0.01), ...ring(mouthR, zc + (innerR - mouthR))]));
+      cc.push(cyl(top + 9 - zc, mouthR, mouthR, zc));
+      parts.push({
+        name: 'Wind cap',
+        role: 'accessory',
+        m: sub(union(cs), union(cc)),
+        previewZ: zTop - sockLen,
+        note: 'Push over the reed seat collar. Blow through the top; the reed should not touch the cap.',
+      });
+    }
+  } else if (mp.kind === 'membrane' && mp.membrane) {
+    const mb = mp.membrane;
+    const wall = 2.4;
+    const chOuter = mb.innerR + wall;
+    let zFloor: number;
+    if (mb.pipeThrough) {
+      // Sleeve that the pipe slides through; the pipe end is the nozzle.
+      const pr = (res.pipe.od + Math.min(d.clearance, 0.15)) / 2;
+      const sleeveR = pr + 2.4;
+      solids.push(cyl(24, sleeveR));
+      cavities.push(cyl(200, pr, pr, -1));
+      outletOuter = sleeveR;
+      zFloor = flare(chOuter, 20);
+      zFloor = Math.max(zFloor, 24);
+    } else {
+      zFloor = flare(chOuter, z0);
+      zFloor = Math.max(zFloor, z0 + 2);
+    }
+    const zBase = zFloor + mb.base;
+    const zRim = zBase + mb.chamberDepth;
+    solids.push(cyl(zRim - zFloor, chOuter, chOuter, zFloor));
+    cavities.push(cyl(zRim - zBase + 1, mb.innerR, mb.innerR, zBase));
+    // Rubber-band groove below the rim.
+    cavities.push(sub(cyl(2, chOuter + 5, chOuter + 5, zRim - 4.5), cyl(2, chOuter - 0.9, chOuter - 0.9, zRim - 4.5)));
+    // Round over the rim so the latex is not cut.
+    cavities.push(sub(cyl(0.8, chOuter + 3, chOuter + 3, zRim - 0.8), cyl(0.8, chOuter, chOuter - 0.8, zRim - 0.8)));
+    if (!mb.pipeThrough) {
+      const nTop = zRim + mb.protrusion;
+      const no = mb.nozzleR + mb.nozzleWall;
+      solids.push(cyl(nTop - 0.6 - zBase + 0.5, no, no, zBase - 0.5));
+      solids.push(cyl(0.6, no, no - 0.5, nTop - 0.6));
+      cavities.push(cyl(nTop + 2, mb.nozzleR, mb.nozzleR, -1));
+    }
+    // Blow tube, 45° up and out.
+    const tubeLen = 30;
+    const tube = (r: number, len: number) =>
+      keep(keep(keep(Manifold.cylinder(len, r, r, seg)).rotate([0, 45, 0])).translate([mb.innerR - 2, 0, zBase + mb.chamberDepth * 0.35]));
+    solids.push(tube(5.5, tubeLen));
+    cavities.push(tube(3.8, tubeLen + 1));
+    const body = sub(union(solids), union(cavities));
+    parts.push({
+      name: 'Membrane mouthpiece',
+      role: 'mouthpiece',
+      m: body,
+      previewZ: 0,
+      note: mb.pipeThrough
+        ? 'Stretch latex over the rim and clamp it. Slide the pipe up until it presses into the latex.'
+        : `Stretch a piece of latex glove over the rim so it presses on the nozzle (${mb.protrusion} mm proud). Clamp with the ring or a rubber band.`,
+    });
+    // Clamp ring for the latex.
+    const ringIn = chOuter + 0.45;
+    const ringM = sub(cyl(7, ringIn + 2.4), cyl(9, ringIn, ringIn, -1));
+    parts.push({ name: 'Membrane clamp ring', role: 'accessory', m: ringM, previewZ: zRim - 6, note: 'Press over the latex and rim.' });
+  }
+
+  return { parts, pipeTopZ };
+}
+
+/** Extrude a polygon given in (z, y) across x, centred on x = 0. */
+function extrudeYZ(M: ManifoldToplevel, poly: [number, number][], width: number, keep: (m: Manifold) => Manifold): Manifold {
+  const { CrossSection, Manifold } = M;
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    area += a[0] * b[1] - b[0] * a[1];
+  }
+  const pts = area < 0 ? poly.slice().reverse() : poly;
+  const cs = new CrossSection([pts]);
+  // Extrusion axis is the CrossSection's z; map (u, v, w) -> (-w, v, u).
+  const ex = keep(Manifold.extrude(cs, width));
+  cs.delete();
+  return keep(keep(ex.rotate([0, -90, 0])).translate([width / 2, 0, 0]));
+}
