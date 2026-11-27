@@ -78,6 +78,7 @@ export interface Design {
   thumbSpacing: number;
   meander: boolean;
   meanderSide: 'right' | 'left';
+  bellFold: boolean;
   foldUpper: boolean;
   legLength: number;
   bendWall: number;
@@ -163,6 +164,7 @@ export const DEFAULT_DESIGN: Design = {
   thumbSpacing: 14,
   meander: true,
   meanderSide: 'right',
+  bellFold: false,
   foldUpper: true,
   legLength: 0,
   bendWall: 1.6,

@@ -84,12 +84,12 @@ export const FAMILIES: Family[] = [
     id: 'saxophone',
     label: 'Saxophone (keyless)',
     notes: 'Conical single-reed tube in the style of a keyless folk saxophone. Overblows at the octave.',
-    base: { boreType: 'conical', exciter: 'single-reed', singleReedMode: 'printed', matchPipeBore: false, thumbHole: true, rangeMode: 'scale', scale: 'major', noteCount: 8, bell: true, pipeLengthMode: 'none' },
+    base: { boreType: 'conical', exciter: 'single-reed', singleReedMode: 'printed', matchPipeBore: false, thumbHole: true, rangeMode: 'scale', scale: 'major', noteCount: 8, bell: true, pipeLengthMode: 'none', bellFold: false },
     variants: [
       { id: 'soprano', label: 'B♭ soprano', patch: { lowestNote: 'Ab3', pipe: 'cu15', reedSize: 'clarinet-bb', boreDiameter: 10, boreEndDiameter: 28, bellDiameter: 50, bellLength: 50, path: 'straight' } },
-      { id: 'alto', label: 'E♭ alto', patch: { lowestNote: 'Db3', pipe: 'cu15', reedSize: 'sax-alto', boreDiameter: 12, boreEndDiameter: 40, bellDiameter: 70, bellLength: 70, path: 'folded' } },
-      { id: 'tenor', label: 'B♭ tenor', patch: { lowestNote: 'Ab2', pipe: 'cu22', reedSize: 'sax-tenor', boreDiameter: 16, boreEndDiameter: 52, bellDiameter: 90, bellLength: 90, path: 'folded' } },
-      { id: 'baritone', label: 'E♭ baritone', patch: { lowestNote: 'Db2', pipe: 'cu28', reedSize: 'sax-tenor', boreDiameter: 20, boreEndDiameter: 66, bellDiameter: 110, bellLength: 110, path: 'folded' } },
+      { id: 'alto', label: 'E♭ alto', patch: { lowestNote: 'Db3', pipe: 'cu15', reedSize: 'sax-alto', bellFold: true, boreDiameter: 12, boreEndDiameter: 40, bellDiameter: 70, bellLength: 70, path: 'folded' } },
+      { id: 'tenor', label: 'B♭ tenor', patch: { lowestNote: 'Ab2', pipe: 'cu22', bellFold: true, reedSize: 'sax-tenor', boreDiameter: 16, boreEndDiameter: 52, bellDiameter: 90, bellLength: 90, path: 'folded' } },
+      { id: 'baritone', label: 'E♭ baritone', patch: { lowestNote: 'Db2', pipe: 'cu28', bellFold: true, reedSize: 'sax-tenor', boreDiameter: 20, boreEndDiameter: 66, bellDiameter: 110, bellLength: 110, path: 'folded' } },
     ],
   },
   {
@@ -112,15 +112,15 @@ export const FAMILIES: Family[] = [
     variants: [
       { id: 'treble', label: 'Treble in D', patch: { lowestNote: 'D4', boreDiameter: 4.5, boreEndDiameter: 20, bellDiameter: 55, bellLength: 90, path: 'straight' } },
       { id: 'alto', label: 'Alto in G', patch: { lowestNote: 'G3', boreDiameter: 5, boreEndDiameter: 26, bellDiameter: 65, bellLength: 110, path: 'straight' } },
-      { id: 'tenor', label: 'Tenor in C', patch: { lowestNote: 'C3', boreDiameter: 6, boreEndDiameter: 32, bellDiameter: 75, bellLength: 130, path: 'folded', doubleReedSeat: 'bassoon' } },
-      { id: 'bass', label: 'Bass in F', patch: { lowestNote: 'F2', boreDiameter: 7, boreEndDiameter: 40, bellDiameter: 90, bellLength: 150, path: 'folded', doubleReedSeat: 'bassoon' } },
+      { id: 'tenor', label: 'Tenor in C', patch: { lowestNote: 'C3', bellFold: true, boreDiameter: 6, boreEndDiameter: 32, bellDiameter: 75, bellLength: 130, path: 'folded', doubleReedSeat: 'bassoon' } },
+      { id: 'bass', label: 'Bass in F', patch: { lowestNote: 'F2', bellFold: true, boreDiameter: 7, boreEndDiameter: 40, bellDiameter: 90, bellLength: 150, path: 'folded', doubleReedSeat: 'bassoon' } },
     ],
   },
   {
     id: 'dulcian',
     label: 'Dulcian / Curtal (bassoon)',
     notes: 'Conical double reed with the bore folded back on itself, the ancestor of the bassoon.',
-    base: { ...conDouble, pipe: 'cu15', path: 'folded', doubleReedSeat: 'bassoon', thumbHole: true, noteCount: 8, foldUpper: true },
+    base: { ...conDouble, pipe: 'cu15', path: 'folded', doubleReedSeat: 'bassoon', thumbHole: true, noteCount: 8, foldUpper: true, bellFold: true },
     variants: [
       { id: 'soprano', label: 'Soprano in G', patch: { lowestNote: 'G3', boreDiameter: 4.5, boreEndDiameter: 16, bellDiameter: 22, bellLength: 30 } },
       { id: 'alto', label: 'Alto in C', patch: { lowestNote: 'C3', boreDiameter: 5, boreEndDiameter: 20, bellDiameter: 26, bellLength: 35 } },
@@ -190,8 +190,6 @@ export function findFamily(id: string): Family {
 export function applyPreset<T extends Design>(d: T, familyId: string, variantId: string): T {
   const fam = findFamily(familyId);
   const v = fam.variants.find((x) => x.id === variantId) ?? fam.variants[0];
-  const out = { ...d, ...fam.base, ...v.patch, family: fam.id, variant: v.id } as T;
-  // Reed size follows pipe size if the preset did not say.
-  if (out.exciter === 'double-reed' && out.doubleReedSeat === 'straw' && !v.patch.strawDiameter && !fam.base.strawDiameter) out.strawDiameter = 6;
-  return out;
+  const reset: Partial<Design> = { bellFold: false, windcap: false, path: 'straight' };
+  return { ...d, ...reset, ...fam.base, ...v.patch, family: fam.id, variant: v.id } as T;
 }

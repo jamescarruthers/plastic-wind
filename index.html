@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Design 3D-printable reed and membrane wind instruments and export them as 3MF." />
+    <title>Plastic Wind</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='13' y='2' width='6' height='28' rx='3' fill='%23b8864b'/%3E%3Ccircle cx='16' cy='10' r='1.6' fill='%23222'/%3E%3Ccircle cx='16' cy='15' r='1.6' fill='%23222'/%3E%3Ccircle cx='16' cy='20' r='1.6' fill='%23222'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <h1>Plastic Wind</h1>
+        <span class="tag">3D-printed reed and membrane instruments</span>
+      </div>
+      <div class="actions">
+        <button id="btn-share" class="ghost" title="Copy a link to this design">Copy link</button>
+        <button id="btn-save" class="ghost" title="Save the design as JSON">Save</button>
+        <label class="ghost button" title="Load a design JSON">Load<input id="file-load" type="file" accept="application/json,.json" hidden /></label>
+        <button id="btn-notes" class="ghost">Build notes</button>
+        <button id="btn-export" class="primary">Download 3MF</button>
+      </div>
+    </header>
+    <main class="layout">
+      <aside class="panel" id="panel">
+        <div class="panel-tools">
+          <label class="toggle"><input type="checkbox" id="show-advanced" /> Show advanced settings</label>
+        </div>
+        <div id="form"></div>
+      </aside>
+      <section class="work">
+        <div class="viewer-wrap">
+          <div id="viewer" class="viewer"></div>
+          <div class="viewer-bar">
+            <div class="seg" role="tablist">
+              <button data-view="assembled" class="on">Assembled</button>
+              <button data-view="print">Print layout</button>
+            </div>
+            <label class="toggle"><input type="checkbox" id="section" /> Cut away</label>
+            <label class="toggle">Open halves <input type="range" id="explode" min="0" max="40" value="0" /></label>
+            <button id="btn-fit" class="ghost small">Fit view</button>
+          </div>
+          <div id="status" class="status">Loading…</div>
+        </div>
+        <div class="summary" id="summary"></div>
+        <div id="warnings" class="warnings"></div>
+        <nav class="tabs" role="tablist">
+          <button data-tab="notes" class="on">Notes</button>
+          <button data-tab="fingering">Fingering chart</button>
+          <button data-tab="holes">Holes</button>
+          <button data-tab="bore">Bore</button>
+          <button data-tab="parts">Parts</button>
+        </nav>
+        <div class="tab-body">
+          <div data-pane="notes" class="pane on"></div>
+          <div data-pane="fingering" class="pane"></div>
+          <div data-pane="holes" class="pane"></div>
+          <div data-pane="bore" class="pane"></div>
+          <div data-pane="parts" class="pane"></div>
+        </div>
+      </section>
+    </main>
+    <dialog id="notes-dialog">
+      <form method="dialog" class="dialog-head">
+        <strong>Build notes</strong>
+        <span>
+          <button type="button" id="btn-notes-dl" class="ghost small">Download .txt</button>
+          <button class="ghost small">Close</button>
+        </span>
+      </form>
+      <pre id="notes-text"></pre>
+    </dialog>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
