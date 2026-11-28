@@ -99,8 +99,9 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   // Loops go to +x for "right". When they go behind, the layout keeps them on
   // +x and the preview turns the instrument so -x faces the player's fingers.
   const side = behind || d.meanderSide !== 'left' ? 1 : -1;
-  // Alternate sides: each loop goes to the other side from the one before.
-  const alternate = !behind && d.meanderSide === 'alternate';
+  // Alternate sides: each loop goes to the other side from the one before,
+  // starting on the chosen side.
+  const alternate = !behind && (d.alternateLoops || d.meanderSide === 'alternate');
   let loopCount = 0;
   const nextSide = () => {
     const ls = alternate && loopCount % 2 === 1 ? -side : side;
