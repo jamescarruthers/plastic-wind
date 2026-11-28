@@ -54,6 +54,8 @@ export interface Design {
   membraneDiameter: number;
   membraneNozzle: 'pipe' | 'printed';
   nozzleProtrusion: number;
+  /** Blow tube on a membrane mouthpiece: 45° up and out, or level. */
+  blowTube: 'angled' | 'flat';
   exciterCorrection: number;
 
   // Inlet pipe and fitting
@@ -154,6 +156,7 @@ export const DEFAULT_DESIGN: Design = {
   membraneDiameter: 32,
   membraneNozzle: 'printed',
   nozzleProtrusion: 1,
+  blowTube: 'angled',
   exciterCorrection: 0,
 
   pipe: 'cu15',

@@ -4,6 +4,7 @@
 import type { Manifold } from 'manifold-3d';
 import type { ManifoldToplevel } from './manifold';
 import type { Resolved } from '../model/derive';
+import { boreProfile } from './profile';
 
 export interface LocalPart {
   name: string;
@@ -23,7 +24,7 @@ export interface MouthpieceBuild {
 }
 
 export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: (m: Manifold) => Manifold): MouthpieceBuild {
-  const { Manifold } = M;
+  const { Manifold, CrossSection } = M;
   const d = res.d;
   const mp = res.mouthpiece;
   const seg = Math.max(24, Math.round(d.resolution / 4) * 4);
@@ -216,12 +217,35 @@ export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: (m: Ma
       solids.push(cyl(0.6, no, no - 0.5, nTop - 0.6));
       cavities.push(cyl(nTop + 2, mb.nozzleR, mb.nozzleR, -1));
     }
-    // Blow tube, 45° up and out.
-    const tubeLen = 30;
-    const tube = (r: number, len: number) =>
-      keep(keep(keep(Manifold.cylinder(len, r, r, seg)).rotate([0, 45, 0])).translate([mb.innerR - 2, 0, zBase + mb.chamberDepth * 0.35]));
-    solids.push(tube(5.5, tubeLen));
-    cavities.push(tube(3.8, tubeLen + 1));
+    const tubeR = 5.5;
+    const tubeBoreR = 3.8;
+    if (d.blowTube === 'flat') {
+      // Level blow tube, straight out of the side. It sits low, so its top
+      // clears the clamp ring and the rubber-band groove. To print standing
+      // without supports, the outside has a 45° keel underneath and the bore
+      // a pointed roof of the same area as the round bore.
+      const zc = Math.min(zBase + mb.chamberDepth * 0.35, zRim - 6.5 - tubeR);
+      const drop = boreProfile('drop', seg);
+      // Extrude along local z, then turn so local z -> +x, local x -> -z and
+      // local y -> y. A profile point (u, v) has v upwards in the world.
+      const tube = (r: number, pointDown: boolean, x0: number, len: number) => {
+        const pts = drop.pts.map(([u, v]) => [pointDown ? v * r : -v * r, u * r] as [number, number]);
+        const cs = new CrossSection([pts], 'NonZero');
+        const ex = keep(Manifold.extrude(cs, len));
+        cs.delete();
+        return keep(keep(ex.rotate([0, 90, 0])).translate([x0, 0, zc]));
+      };
+      const x0 = mb.innerR - 2;
+      solids.push(tube(tubeR, true, x0, 24));
+      cavities.push(tube(tubeBoreR * drop.scale, false, x0 - 1, 26));
+    } else {
+      // Blow tube, 45° up and out.
+      const tubeLen = 30;
+      const tube = (r: number, len: number) =>
+        keep(keep(keep(Manifold.cylinder(len, r, r, seg)).rotate([0, 45, 0])).translate([mb.innerR - 2, 0, zBase + mb.chamberDepth * 0.35]));
+      solids.push(tube(tubeR, tubeLen));
+      cavities.push(tube(tubeBoreR, tubeLen + 1));
+    }
     const body = sub(union(solids), union(cavities));
     parts.push({
       name: 'Membrane mouthpiece',

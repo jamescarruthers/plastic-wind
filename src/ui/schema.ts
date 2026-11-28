@@ -101,6 +101,7 @@ export const GROUPS: Group[] = [
       { key: 'membraneDiameter', label: 'Membrane diameter', type: 'number', unit: 'mm', step: 1, min: 15, max: 80, show: (d) => d.exciter === 'membrane' },
       { key: 'membraneNozzle', label: 'Nozzle', type: 'select', options: opt([['printed', 'Printed nozzle'], ['pipe', 'The pipe end (slides to adjust)']]), show: (d) => d.exciter === 'membrane' },
       { key: 'nozzleProtrusion', label: 'Nozzle above the rim', type: 'number', unit: 'mm', step: 0.1, min: -2, max: 5, help: 'How far the nozzle pushes into the latex.', show: (d) => d.exciter === 'membrane' && d.membraneNozzle === 'printed' },
+      { key: 'blowTube', label: 'Blow tube', type: 'select', options: opt([['angled', 'Angled up at 45°'], ['flat', 'Flat, straight out of the side']]), help: 'A flat tube sits low on the chamber, below the clamp ring. It prints standing without supports: the outside has a 45° keel underneath and the bore a pointed roof.', show: (d) => d.exciter === 'membrane' },
       { key: 'exciterCorrection', label: 'Mouthpiece correction', type: 'number', unit: 'mm', step: 0.5, min: -40, max: 80, help: 'Extra bore length the reed adds. Raise it if a test print plays sharp, lower it if flat.', advanced: true },
     ],
   },

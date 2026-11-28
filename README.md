@@ -27,7 +27,9 @@ so the joint is smooth.
   bassoon reed on a printed bocal tip. Optional crumhorn-style wind cap.
 - *Latex membrane*: a chamber with a rim to stretch a piece of glove over, a
   clamp ring, a side blow tube, and either a printed nozzle or the inlet pipe
-  itself as an adjustable nozzle.
+  itself as an adjustable nozzle. The blow tube can angle up at 45° or come
+  flat out of the side, low enough to clear the clamp ring; the flat tube has a
+  45° keel and a pointed bore roof so it prints without supports.
 
 **Inlet.** Sockets (or spigots) sized for UK/EU and US copper pipe, 21.5 mm
 overflow pipe, waste pipe, conduit and PVC, or a custom size. The pipe can be

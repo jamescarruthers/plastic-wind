@@ -210,3 +210,39 @@ describe('edge chamfer on flat bodies', () => {
     expect(g.warnings.some((w) => /edge chamfer is limited/.test(w))).toBe(true);
   });
 });
+
+describe('membrane blow tube', () => {
+  const base = applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto');
+  const mouthpiece = async (d: Design) => {
+    const g = await generate(M, d);
+    const kept: { delete(): void }[] = [];
+    const keep = <T extends { delete(): void }>(m: T) => (kept.push(m), m);
+    const { buildMouthpiece } = await import('../src/geometry/mouthpiece');
+    const mp = buildMouthpiece(M, g.res, keep);
+    const body = mp.parts.find((p) => p.role === 'mouthpiece')!;
+    const ring = mp.parts.find((p) => p.name === 'Membrane clamp ring')!;
+    const out = {
+      pieces: body.m.decompose().length,
+      genus: body.m.genus(),
+      // The clamp ring where it sits when fitted.
+      clash: keep(body.m.intersect(keep(ring.m.translate([0, 0, ring.previewZ - body.previewZ])))).volume(),
+      bottom: body.m.boundingBox().min[2],
+    };
+    kept.forEach((m) => m.delete());
+    return out;
+  };
+  for (const nozzle of ['printed', 'pipe'] as const) {
+    it(`flat tube, ${nozzle} nozzle: one solid, same air paths, clears the clamp ring`, async () => {
+      const d: Design = { ...base, exciter: 'membrane', membraneNozzle: nozzle, pipeLengthMode: 'auto' };
+      const angled = await mouthpiece({ ...d, blowTube: 'angled' });
+      const flat = await mouthpiece({ ...d, blowTube: 'flat' });
+      expect(flat.pieces).toBe(1);
+      // Same through-paths: the blow tube into the chamber, and the nozzle
+      // (or pipe sleeve) out of it.
+      expect(flat.genus).toBe(2);
+      expect(flat.clash).toBeLessThan(0.01);
+      // Still stands on its outlet.
+      expect(Math.abs(flat.bottom - angled.bottom)).toBeLessThan(1e-6);
+    });
+  }
+});
