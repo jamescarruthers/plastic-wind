@@ -161,26 +161,33 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
 
   // ---- Upper bore, built upwards from the top of the finger line.
   const Lu = sTop;
-  const Ru = maxR(0, Lb) + d.bendWall / 2;
   const bellStartS = res.body.bellLength > 0 ? Lb - res.body.bellLength : Lb;
+  // Legs are spaced for the bore they carry. Only the first bend, which
+  // brings the bore round beside the finger line, must clear that bore too.
+  const rU = maxR(0, sTop);
+  const rF = maxR(sTop, bellStartS);
+  const Rl = rU + d.bendWall / 2;
+  const R1 = (rU + rF + d.bendWall) / 2;
   // Lowest y the legs may reach without hitting the bell.
   const yLimit = d.bellFold ? fl.path.bounds().min[1] : fl.path.at(bellStartS - sTop).p[1];
-  const hAuto = Math.max(4 * Ru, -yLimit - Ru - (res.body.bellRadius - res.body.r0));
+  const hAuto = Math.max(4 * Rl, -yLimit - Rl - (res.body.bellRadius - res.body.r0));
   const hMax = d.legLength > 0 ? d.legLength : hAuto;
-  const e = Ru + radiusAt(0) + 2 + Math.max(0, res.socket.r - Ru);
+  const e = Rl + radiusAt(0) + 2 + Math.max(0, res.socket.r - Rl);
   const up = new Turtle([0, 0], UP);
   let folded = false;
+  // Length used: e + 2n·h + π·R1 + (2n − 1)·π·Rl
+  const spare = Lu - e - Math.PI * (R1 - Rl);
   if (d.foldUpper && Lu > 0.6 * hMax + e) {
-    const n = Math.max(1, Math.ceil((Lu - e) / (2 * (hMax + Math.PI * Ru))));
-    const h = (Lu - e - 2 * n * Math.PI * Ru) / (2 * n);
-    if (h > Ru) {
+    const n = Math.max(1, Math.ceil(spare / (2 * (hMax + Math.PI * Rl))));
+    const h = spare / (2 * n) - Math.PI * Rl;
+    if (h > Rl) {
       // Heading up, a left turn (positive) swings to -x: the legs go to the
       // side opposite the loops.
       up.group = 1;
       for (let k = 0; k < n; k++) {
-        up.turn(side * Math.PI, Ru); // over the top, now heading down
+        up.turn(side * Math.PI, k === 0 ? R1 : Rl); // over the top, now heading down
         up.forward(h);
-        up.turn(-side * Math.PI, Ru); // round the bottom, heading up
+        up.turn(-side * Math.PI, Rl); // round the bottom, heading up
         up.forward(k === n - 1 ? h + e : h);
       }
       legs = 2 * n;
