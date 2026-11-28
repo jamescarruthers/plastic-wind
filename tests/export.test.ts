@@ -126,3 +126,87 @@ describe('air path is open', () => {
     if (g.res.joint && d.boreType === 'cylindrical') for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
   });
 });
+
+describe('pipe run with printed U-bends', () => {
+  const P = (fam: string, v: string, patch: Partial<Design>): Design => ({ ...applyPreset({ ...DEFAULT_DESIGN }, fam, v), ...patch }) as Design;
+
+  const one = { split: 'none', segment: false } as const;
+  it.each([
+    ['bass clarinet, 2 bends, 22 mm copper, round tube', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 2 })],
+    ['great bass crumhorn, 3 bends, overflow pipe, round tube', P('crumhorn', 'greatbass', { ...one, pipeLengthMode: 'auto', pipeBends: 3 })],
+    ['bass clarinet, 1 bend, slab', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 1, bodyStyle: 'slab' })],
+    ['bass clarinet, 1 bend, square blocks', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 1, bodyStyle: 'blocks' })],
+    ['bass clarinet, 1 bend, rounded blocks', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 1, bodyStyle: 'rounded' })],
+    ['bass clarinet, 1 bend, round section, one piece standing', P('clarinet', 'bass', { ...one, path: 'straight', pipeLengthMode: 'auto', pipeBends: 1 })],
+  ])('%s', async (_l, d) => {
+    const g = await generate(M, d, { verify: true });
+    const run = g.res.pipeRun!;
+    expect(run.bends).toBe(d.pipeBends);
+    // Pieces plus the bore inside the bends add up to the solved pipe.
+    expect(run.pieces * run.pieceLength + run.bends * g.res.pipeBend!.uLen).toBeCloseTo(g.sol.pipeLength, 6);
+    expect(run.pieceLength).toBeGreaterThanOrEqual(g.res.pipeBend!.minPiece);
+    // Still in tune: the bends are bore of the pipe's own size.
+    for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
+    // Each fitting is one solid with one path through it (genus 1).
+    const fittings = g.build!.print.filter((p) => p.name.startsWith('Pipe U-bend'));
+    expect(fittings.length).toBe(run.bends);
+    for (const f of fittings) {
+      const m = new M.Manifold(new M.Mesh({ numProp: 3, vertProperties: f.positions, triVerts: f.indices }));
+      expect(m.decompose().length).toBe(1);
+      expect(m.genus()).toBe(1);
+      m.delete();
+    }
+    expect(g.build!.verify!.bellOpen).toBe(true);
+  });
+
+  it('splits each bend into glued halves when the body is printed in halves', async () => {
+    const g = await generate(M, P('clarinet', 'bass', { pipeLengthMode: 'auto', pipeBends: 2 }));
+    const halves = g.build!.print.filter((p) => p.name.startsWith('Pipe U-bend'));
+    expect(halves.map((h) => h.name)).toEqual([
+      'Pipe U-bend 1/2 front half',
+      'Pipe U-bend 1/2 back half',
+      'Pipe U-bend 2/2 front half',
+      'Pipe U-bend 2/2 back half',
+    ]);
+    // Each half sits on its cut face.
+    for (const h of halves) {
+      let minZ = Infinity;
+      for (let i = 2; i < h.positions.length; i += 3) minZ = Math.min(minZ, h.positions[i]);
+      expect(Math.abs(minZ)).toBeLessThan(1e-3);
+    }
+  });
+
+  it('drops bends that leave pieces too short to reach both sockets', async () => {
+    const g = await generate(null, P('clarinet', 'bb', { pipeLengthMode: 'auto', pipeBends: 6 }));
+    const run = g.res.pipeRun!;
+    expect(run.bends).toBeLessThan(6);
+    expect(run.pieceLength).toBeGreaterThanOrEqual(g.res.pipeBend!.minPiece);
+    expect(g.warnings.some((w) => /only has room for/.test(w))).toBe(true);
+    for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
+  });
+});
+
+describe('edge chamfer on flat bodies', () => {
+  const P = (style: string, chamfer: number): Design =>
+    ({ ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: style, edgeChamfer: chamfer, split: 'none', segment: false }) as Design;
+
+  it.each(['slab', 'blocks', 'rounded'])('%s: bevels the edges and keeps the air path open', async (style) => {
+    const plain = await generate(M, P(style, 0));
+    const bevelled = await generate(M, P(style, 2), { verify: true });
+    const vol = (g: typeof plain) => g.build!.print.filter((p) => p.role === 'body').reduce((a, p) => a + p.volume, 0);
+    const size = (g: typeof plain) => g.build!.print.find((p) => p.role === 'body')!.size;
+    // Same overall size; material taken off the edges.
+    expect(size(bevelled)[2]).toBeCloseTo(size(plain)[2], 3);
+    expect(vol(bevelled)).toBeLessThan(vol(plain) * 0.99);
+    const v = bevelled.build!.verify!;
+    expect(v.bellOpen).toBe(true);
+    expect(v.strayOpenings).toBe(0);
+    for (const h of v.holes) expect(h.reachesBore && h.breaksOut).toBe(true);
+  });
+
+  it('limits a chamfer deeper than the wall allows, with a warning', async () => {
+    const g = await generate(null, P('slab', 10));
+    expect(g.res.chamfer).toBeCloseTo(DEFAULT_DESIGN.wall - 0.5, 6);
+    expect(g.warnings.some((w) => /edge chamfer is limited/.test(w))).toBe(true);
+  });
+});

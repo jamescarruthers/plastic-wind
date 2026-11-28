@@ -7,6 +7,9 @@ import { insertSpan, type SolveResult } from '../acoustics/solver';
 import { PIPE_GROUP, type Layout } from './layout';
 import type { Path } from './path';
 import { buildMouthpiece } from './mouthpiece';
+import { boreProfile } from './profile';
+import { buildUBend } from './ubend';
+import { chamferedExtrude } from './flat';
 import { isFlatStyle, loopsBehind } from '../model/design';
 
 type V3 = [number, number, number];
@@ -68,28 +71,6 @@ function signedArea(pl: readonly (readonly [number, number] | { x: number; y: nu
     a += x0 * y1 - x1 * y0;
   }
   return a / 2;
-}
-
-/** Unit cross-section of the bore. "lemon" is pointed at ±z, "drop" at +z only,
- *  with the radius scaled so the area matches a circle of the nominal radius. */
-function boreProfile(shape: 'round' | 'lemon' | 'drop', n: number): { pts: [number, number][]; scale: number } {
-  const pts: [number, number][] = [];
-  const q = Math.PI / 4;
-  for (let i = 0; i < n; i++) {
-    const phi = (2 * Math.PI * i) / n;
-    let rho = 1;
-    const s = Math.sin(phi);
-    const top = s > Math.sin(q) + 1e-9;
-    const bottom = s < -Math.sin(q) - 1e-9;
-    if ((shape === 'lemon' && (top || bottom)) || (shape === 'drop' && top)) {
-      const ref = top ? (phi < Math.PI / 2 + 1e-9 ? q : 3 * q) : phi < (3 * Math.PI) / 2 + 1e-9 ? 5 * q : 7 * q;
-      rho = 1 / Math.cos(phi - ref);
-    }
-    pts.push([rho * Math.cos(phi), rho * Math.sin(phi)]);
-  }
-  const extra = 1 - Math.PI / 4; // cap area per pointed side, × r²
-  const caps = shape === 'lemon' ? 2 : shape === 'drop' ? 1 : 0;
-  return { pts, scale: 1 / Math.sqrt(1 + (caps * extra) / Math.PI) };
 }
 
 export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: SolveResult, lay: Layout, opts: { verify?: boolean } = {}): Promise<BuildResult> {
@@ -221,7 +202,8 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       }
       len = Math.max(len, 1);
       const pt = (a: number, b: number): [number, number] => [e.p[0] + nn[0] * a + t[0] * b, e.p[1] + nn[1] * a + t[1] * b];
-      let poly = [pt(-rb, -0.5), pt(rb, -0.5), pt(rb, len), pt(-rb, len)];
+      // Starts at the bell end itself: starting inside would notch the end.
+      let poly = [pt(-rb, 0), pt(rb, 0), pt(rb, len), pt(-rb, len)];
       if (signedArea(poly) < 0) poly = poly.reverse();
       return keep(new CrossSection([poly]));
     };
@@ -352,15 +334,14 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
         outline = keep(outline.subtract(toCs(gap)));
       }
       outline = keep(outline.subtract(mouthChannel()));
-      const half = slabHalfFor();
-      return keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
+      return chamferedExtrude(M, keep, outline, slabHalfFor(), res.chamfer);
     };
 
     // ---------------- Outer body
     const outerParts: Manifold[] = [];
     const cavities: Manifold[] = [];
     if (d.bodyStyle === 'slab') {
-      outerParts.push(slab(path, ro, slabHalfFor(), mouthChannel(), inJoint, jointKeepOut()));
+      outerParts.push(slab(path, ro, slabHalfFor(), mouthChannel(), inJoint, jointKeepOut(), res.chamfer));
     } else if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') {
       outerParts.push(blocks(d.bodyStyle === 'rounded'));
     } else {
@@ -726,21 +707,70 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     // ---------------- Mouthpiece and accessories
     const mpb = buildMouthpiece(M, res, keep);
     const pipeLen = res.usePipe ? sol.pipeLength : 0;
-    // Mouthpiece axis points away from the body along -t at the inlet.
-    const originOffset = pipeLen - mpb.pipeTopZ; // distance from body socket bottom to mouthpiece z = 0
+    // The inlet pipe run, laid out from the body inlet: straight pieces
+    // joined by printed U-bends, zig-zagging away from the loops. Push-fit
+    // joints turn freely, so this is only one way it can sit.
+    const runPieces: { p: V3; dir: V3; len: number }[] = [];
+    const bendsAt: { p: V3; dir: V3; mirror: boolean }[] = [];
+    let runEnd: V3 = [f0.p[0], f0.p[1], 0];
+    let runDir: V3 = back;
+    if (pipeLen > 0) {
+      const run = res.pipeRun ?? { bends: 0, pieces: 1, pieceLength: pipeLen };
+      const R = res.pipeBend?.R ?? 0;
+      const firstTurn = d.meanderSide === 'left' ? -1 : 1; // +1 turns left
+      let p = runEnd;
+      let dir = runDir;
+      for (let i = 0; i < run.pieces; i++) {
+        runPieces.push({ p, dir, len: run.pieceLength });
+        p = [p[0] + dir[0] * run.pieceLength, p[1] + dir[1] * run.pieceLength, 0];
+        if (i < run.bends) {
+          const sgn = i % 2 === 0 ? firstTurn : -firstTurn;
+          // The fitting turns right as built; mirror it to turn left.
+          bendsAt.push({ p, dir, mirror: sgn > 0 });
+          const left: V3 = [-dir[1], dir[0], 0];
+          p = [p[0] + left[0] * 2 * R * sgn, p[1] + left[1] * 2 * R * sgn, 0];
+          dir = [-dir[0], -dir[1], 0];
+        }
+      }
+      runEnd = p;
+      runDir = dir;
+    }
+    // Mouthpiece on the end of the run, its axis along the last piece.
+    const mpOrigin: V3 = [runEnd[0] - runDir[0] * mpb.pipeTopZ, runEnd[1] - runDir[1] * mpb.pipeTopZ, 0];
     const place = (m: Manifold, z: number): Manifold => {
-      const phi = (Math.atan2(back[1], back[0]) * 180) / Math.PI - 90;
-      const o: V3 = [f0.p[0] + back[0] * (originOffset + z), f0.p[1] + back[1] * (originOffset + z), 0];
+      const phi = (Math.atan2(runDir[1], runDir[0]) * 180) / Math.PI - 90;
+      const o: V3 = [mpOrigin[0] + runDir[0] * z, mpOrigin[1] + runDir[1] * z, 0];
       return keep(keep(keep(m.rotate([-90, 0, 0])).rotate([0, 0, phi])).translate(o));
     };
     for (const p of mpb.parts) {
       preview.push(toMesh(pv(place(p.m, p.previewZ)), p.name, p.role, p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory));
       print.push(toMesh(p.m, p.name, p.role, p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory, p.note));
     }
-    if (pipeLen > 0) {
-      const pr = res.pipe.od / 2;
-      const pipeM = keep(keep(Manifold.cylinder(pipeLen, pr, pr, n)).subtract(keep(keep(Manifold.cylinder(pipeLen + 2, res.pipe.id_ / 2, res.pipe.id_ / 2, n)).translate([0, 0, -1]))));
-      preview.push(toMesh(pv(place(pipeM, -originOffset)), `${res.pipe.label} pipe`, 'pipe', COLORS.pipe));
+    runPieces.forEach((q, i) => {
+      const tube = keep(cylAlong(q.p, q.dir, q.len, res.pipe.od / 2).subtract(cylAlong([q.p[0] - q.dir[0], q.p[1] - q.dir[1], 0], q.dir, q.len + 2, res.pipe.id_ / 2)));
+      preview.push(toMesh(pv(tube), `${res.pipe.label} pipe${runPieces.length > 1 ? ` ${i + 1}/${runPieces.length}` : ''}`, 'pipe', COLORS.pipe));
+    });
+    if (bendsAt.length) {
+      const ub = buildUBend(M, res, keep);
+      const push = 'Push the pipe ends in until they reach the bottom of each socket.';
+      const round = d.bodyStyle === 'tube' || d.bodyStyle === 'web';
+      bendsAt.forEach((b, i) => {
+        const name = `Pipe U-bend ${i + 1}/${bendsAt.length}`;
+        const turned = b.mirror ? keep(ub.mirror([1, 0, 0])) : ub;
+        const phi = (Math.atan2(b.dir[1], b.dir[0]) * 180) / Math.PI - 90;
+        const placed = keep(keep(turned.rotate([0, 0, phi])).translate(b.p));
+        preview.push(toMesh(pv(placed), name, 'accessory', COLORS.accessory));
+        if (split) {
+          // Like the body: two halves, each printed cut face down, then glued.
+          const front = keep(ub.trimByPlane([0, 0, 1], 0));
+          const backHalf = keep(keep(ub.trimByPlane([0, 0, -1], 0)).rotate([0, 180, 0]));
+          print.push(toMesh(front, `${name} front half`, 'accessory', COLORS.accessory, `Print cut face down and glue to the back half. ${push}`));
+          print.push(toMesh(backHalf, `${name} back half`, 'accessory', COLORS.accessory, `Print cut face down and glue to the front half. ${push}`));
+        } else {
+          const how = round ? 'Print lying flat, with supports under the curved underside only.' : 'Print lying flat.';
+          print.push(toMesh(ub, name, 'accessory', COLORS.accessory, `${how} ${push}`));
+        }
+      });
     }
     if (jointSpan) {
       // The pipe joining the blocks runs from one socket bottom to the other.
@@ -803,6 +833,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     keepOut?: ReturnType<typeof CrossSection.circle>,
     skip: (s: number) => boolean = () => false,
     gapKeepOut?: ReturnType<typeof CrossSection.circle> | null,
+    chamfer = 0,
   ): Manifold {
     const ss = path.samples(4, Math.PI / 24).filter((s) => !skip(s));
     const segs = 48;
@@ -833,7 +864,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     outline = keep(outline.subtract(keep(new CrossSection([cut]))));
     if (keepOut) outline = keep(outline.subtract(keepOut));
     if (gapKeepOut) outline = keep(outline.subtract(gapKeepOut));
-    return keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
+    return chamferedExtrude(M, keep, outline, half, chamfer);
   }
 
   function toMesh(m: Manifold, name: string, role: PartMesh['role'], color: string, note?: string): PartMesh {

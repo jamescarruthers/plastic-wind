@@ -17,6 +17,8 @@ interface Result {
   timings: Record<string, number>;
   bodyLength: number;
   pipeLength: number;
+  pipePieces: number;
+  pipePieceLength: number;
   usePipe: boolean;
   jointLength: number;
   conical: boolean;
@@ -242,7 +244,7 @@ function update(key: keyof Design, value: unknown) {
     if (key === 'doubleReedSeat') design = { ...design, reedLength: DOUBLE_REED_DEFAULT_LENGTH[String(value)] ?? design.reedLength };
   }
   // Re-render the form when visibility may have changed.
-  const structural = ['midPipe', 'loopDirection', 'alternateLoops', 'holeColumns', 'family', 'variant', 'exciter', 'singleReedMode', 'doubleReedSeat', 'membraneNozzle', 'pipe', 'pipeLengthMode', 'boreType', 'matchPipeBore', 'bell', 'rangeMode', 'path', 'meander', 'foldUpper', 'split', 'dowels', 'thumbHole', 'reedSize'];
+  const structural = ['bodyStyle', 'midPipe', 'loopDirection', 'alternateLoops', 'holeColumns', 'family', 'variant', 'exciter', 'singleReedMode', 'doubleReedSeat', 'membraneNozzle', 'pipe', 'pipeLengthMode', 'boreType', 'matchPipeBore', 'bell', 'rangeMode', 'path', 'meander', 'foldUpper', 'split', 'dowels', 'thumbHole', 'reedSize'];
   if (structural.includes(key) || prev.family !== design.family) renderForm();
   if (key === 'family' || key === 'variant') viewer.resetFit();
   persist();
@@ -286,7 +288,11 @@ function renderResult() {
   $('#summary').append(
     stat('Range', `${low.name} – ${high.name}`),
     stat('Body bore', `${fmt(r.bodyLength, 0)} mm`),
-    r.usePipe ? stat('Pipe cut length', `${fmt(r.pipeLength, 0)} mm`) : stat('Holes', String(r.holes.length)),
+    r.usePipe
+      ? r.pipePieces > 1
+        ? stat('Pipe pieces', `${r.pipePieces} × ${fmt(r.pipePieceLength, 0)} mm`)
+        : stat('Pipe cut length', `${fmt(r.pipeLength, 0)} mm`)
+      : stat('Holes', String(r.holes.length)),
     ...(r.jointLength > 0 ? [stat('Joining pipe', `${fmt(r.jointLength, 0)} mm`)] : []),
     stat('Parts', String(r.print.length)),
     stat('Filament', `≈ ${fmt(totalMass, 0)} g`),
@@ -471,7 +477,8 @@ function renderParts() {
   }
   t.append(tb);
   const extra: HTMLElement[] = [];
-  if (r.usePipe) extra.push(el('p', {}, `Cut the inlet pipe to ${fmt(r.pipeLength)} mm.`));
+  if (r.usePipe && r.pipePieces > 1) extra.push(el('p', {}, `Cut ${r.pipePieces} pieces of inlet pipe, each ${fmt(r.pipePieceLength)} mm, and join them with the printed U-bends.`));
+  else if (r.usePipe) extra.push(el('p', {}, `Cut the inlet pipe to ${fmt(r.pipeLength)} mm.`));
   if (r.jointLength > 0) extra.push(el('p', {}, `Cut the joining pipe to ${fmt(r.jointLength)} mm.`));
   if (r.dowels?.count) extra.push(el('p', {}, `${r.dowels.count} dowels, ${r.dowels.diameter} mm, cut to ${fmt(r.dowels.length)} mm long.`));
   pane.append(el('p', { class: 'hint' }, 'Weights assume PLA at 100% infill; real prints weigh less.'), el('div', { class: 'scroll-x' }, t), ...extra);

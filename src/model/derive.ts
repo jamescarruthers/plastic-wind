@@ -47,6 +47,8 @@ export interface Resolved {
   section: BoreSection;
   /** Half thickness of a flat body (slab or blocks). */
   slabHalf: number;
+  /** Edge chamfer for flat bodies, limited so it never reaches the bore. */
+  chamfer: number;
   pipe: PipeSize;
   usePipe: boolean;
   midi: number[];
@@ -57,6 +59,10 @@ export interface Resolved {
   socket: { kind: 'socket' | 'spigot'; r: number; depth: number };
   /** Pipe joining the upper block to the finger block, if wanted. */
   joint: { length: number } | null;
+  /** Size of a printed U-bend for the inlet pipe (when a pipe is used). */
+  pipeBend: { R: number; stub: number; uLen: number; sockR: number; wall: number; minPiece: number } | null;
+  /** How the inlet pipe is cut up: set after solving. */
+  pipeRun: { bends: number; pieces: number; pieceLength: number } | null;
   mouthpiece: MouthpieceSpec;
   spec: SolveSpec;
   outerR: (r: number) => number;
@@ -255,12 +261,28 @@ export function resolve(d: Design): Resolved {
   };
 
 
+  // Printed U-bends joining pieces of the inlet pipe. Two sockets side by
+  // side set the bend radius; the bore inside is the pipe's own bore.
+  let pipeBend: Resolved['pipeBend'] = null;
+  if (usePipe) {
+    const sockR = (pipe.od + d.clearance) / 2;
+    const wallU = Math.max(2.4, d.wall * 0.8);
+    // Housings overlap a little rather than just touching; the wall
+    // between the two sockets is still one and a half walls thick.
+    const R = sockR + wallU * 0.75;
+    const stub = 3;
+    pipeBend = { R, stub, uLen: Math.PI * R + 2 * stub, sockR, wall: wallU, minPiece: 2 * sd + 10 };
+  }
+  // The pipe's length is set by the tuning; bends that do not fit are
+  // dropped afterwards (see cutPipe), never the other way round.
+  const pipeMinL = 2 * sd + 20;
+
   const topHoleR = nHoles ? d.holeMax / 2 : 0;
   const spec: SolveSpec = {
     targets,
     tempC: d.temperatureC,
     head,
-    pipe: { mode: d.pipeLengthMode, L: d.pipeLength, r: pipe.id_ / 2, minL: 2 * sd + 20 },
+    pipe: { mode: d.pipeLengthMode, L: d.pipeLength, r: pipe.id_ / 2, minL: pipeMinL },
     body,
     inputCorrection: baseCorrection + d.exciterCorrection,
     topMargin: topHoleR + d.wall + 10,
@@ -283,9 +305,21 @@ export function resolve(d: Design): Resolved {
     }
   }
 
+  // Edge chamfer: at the open ends it cuts across the wall over the bore, so
+  // it must stay under the wall thickness.
+  const chamferMax = Math.max(0, d.wall - 0.5);
+  let chamfer = 0;
+  if (isFlatStyle(d.bodyStyle) && d.edgeChamfer > 0) {
+    chamfer = Math.min(d.edgeChamfer, chamferMax);
+    if (d.edgeChamfer > chamferMax + 1e-9) warnings.push(`The edge chamfer is limited to ${chamferMax.toFixed(1)} mm (the wall less 0.5 mm) so it cannot cut into the bore at the ends. A thicker wall allows more.`);
+  }
+
   return {
     d,
     joint,
+    chamfer,
+    pipeBend,
+    pipeRun: null,
     section,
     slabHalf,
     pipe,
@@ -301,4 +335,13 @@ export function resolve(d: Design): Resolved {
     outerR: (r: number) => r + d.wall,
     warnings,
   };
+}
+
+/** Split a pipe of total bore length `total` into pieces joined by U-bends. */
+export function cutPipe(res: Resolved, total: number): { run: NonNullable<Resolved['pipeRun']>; reduced: boolean } {
+  const b = res.pipeBend!;
+  const wanted = Math.max(0, Math.round(res.d.pipeBends));
+  let n = wanted;
+  while (n > 0 && (total - n * b.uLen) / (n + 1) < b.minPiece) n--;
+  return { run: { bends: n, pieces: n + 1, pieceLength: (total - n * b.uLen) / (n + 1) }, reduced: n < wanted };
 }

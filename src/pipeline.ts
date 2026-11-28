@@ -1,7 +1,7 @@
 // Design -> acoustic solve -> layout -> solids.
 
 import type { Design } from './model/design';
-import { resolve, type Resolved } from './model/derive';
+import { cutPipe, resolve, type Resolved } from './model/derive';
 import { solveInstrument, type SolveResult } from './acoustics/solver';
 import { layoutInstrument, fingerTopMargin, type Layout } from './geometry/layout';
 import { buildInstrument, type BuildResult } from './geometry/build';
@@ -47,6 +47,15 @@ export async function generate(M: ManifoldToplevel | null, design: Design, opts:
       if (Math.abs(pipeD - boreD) / boreD > 0.35) {
         res.warnings.push(`The joining pipe's bore (${pipeD.toFixed(1)} mm) is far from the bore it replaces (about ${boreD.toFixed(1)} mm). Choose a pipe closer in size, or the low notes may not tune.`);
       }
+    }
+  }
+  if (res.usePipe && res.pipeBend) {
+    const { run, reduced } = cutPipe(res, sol.pipeLength);
+    res.pipeRun = run;
+    if (reduced) {
+      res.warnings.push(
+        `The ${sol.pipeLength.toFixed(0)} mm pipe only has room for ${run.bends} U-bend${run.bends === 1 ? '' : 's'}: each piece needs at least ${res.pipeBend.minPiece.toFixed(0)} mm to reach both sockets.`,
+      );
     }
   }
   const t1 = performance.now();

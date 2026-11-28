@@ -78,7 +78,12 @@ export function buildNotesText(g: Generated): string {
   L.push(`Bore: ${d.boreType}, ${f1(g.res.body.r0 * 2)} mm at the top${d.boreType === 'conical' ? ` to ${f1(g.res.body.r1 * 2)} mm` : ''}${g.res.body.bellLength ? `, bell ${f1(g.res.body.bellRadius * 2)} mm over ${f1(g.res.body.bellLength)} mm` : ''}`);
   L.push(`Body bore length: ${f1(g.sol.bodyLength)} mm (socket bottom to bell end)`);
   const pipeName = PIPES.find((p) => p.id === d.pipe)?.label ?? 'pipe';
-  if (g.res.usePipe) L.push(`Inlet pipe: ${pipeName}, cut to ${f1(g.sol.pipeLength)} mm. Deburr both ends inside and out.`);
+  const run = g.res.pipeRun;
+  if (g.res.usePipe && run && run.bends > 0) {
+    L.push(
+      `Inlet pipe: ${pipeName}, ${run.pieces} pieces each ${f1(run.pieceLength)} mm, joined by ${run.bends} printed U-bend${run.bends === 1 ? '' : 's'} (${f1(g.sol.pipeLength)} mm of bore in all). Deburr every end inside and out.`,
+    );
+  } else if (g.res.usePipe) L.push(`Inlet pipe: ${pipeName}, cut to ${f1(g.sol.pipeLength)} mm. Deburr both ends inside and out.`);
   else L.push(`No inlet pipe: the mouthpiece plugs straight into the body (${pipeName} size fitting).`);
   if (g.res.joint) L.push(`Joining pipe: ${pipeName}, cut to ${f1(g.res.joint.length)} mm. It joins the upper block to the finger block.`);
   L.push(`Layout: ${d.path}${g.lay.loops ? `, ${g.lay.loops} loop(s) between holes` : ''}${g.lay.legs ? `, ${g.lay.legs} folded legs` : ''}`);

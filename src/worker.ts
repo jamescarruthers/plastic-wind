@@ -39,6 +39,8 @@ ctx.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
       timings: g.timings,
       bodyLength: g.sol.bodyLength,
       pipeLength: g.sol.pipeLength,
+      pipePieces: g.res.pipeRun?.pieces ?? 1,
+      pipePieceLength: g.res.pipeRun?.pieceLength ?? g.sol.pipeLength,
       usePipe: g.res.usePipe,
       jointLength: g.res.joint?.length ?? 0,
       conical: g.res.body.type === 'conical',
