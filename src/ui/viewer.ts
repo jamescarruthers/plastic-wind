@@ -80,8 +80,8 @@ export class Viewer {
     this.group.children.forEach((o) => {
       const u = o.userData as { role?: string; name?: string };
       if (this.mode !== 'assembled') return;
-      if (u.name?.startsWith('Body back')) o.position.z = -v;
-      else if (u.name?.startsWith('Body front')) o.position.z = v;
+      if (u.name?.includes('back half')) o.position.z = -v;
+      else if (u.name?.includes('front half')) o.position.z = v;
     });
   }
 

@@ -18,7 +18,7 @@
 import type { Resolved } from '../model/derive';
 import { isBackHole } from '../model/derive';
 import type { SolveResult } from '../acoustics/solver';
-import { bodyRadius } from '../acoustics/solver';
+import { bodyRadius, insertSpan } from '../acoustics/solver';
 import { Path, Turtle, type Vec2 } from './path';
 import { isFlatStyle, loopsBehind } from '../model/design';
 
@@ -49,6 +49,14 @@ export interface Layout {
 const DOWN = -Math.PI / 2;
 const UP = Math.PI / 2;
 
+/** Bore left above the top hole at the top of the finger section. */
+export function fingerTopMargin(topS: number, topDiameter: number, wall: number): number {
+  return Math.min(topS, topDiameter / 2 + wall + 2);
+}
+
+/** Group tag for the joining pipe's run (no body is built along it). */
+export const PIPE_GROUP = 5;
+
 export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   const d = res.d;
   const behind = loopsBehind(d);
@@ -70,9 +78,18 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   let legs = 0;
   const spacings: Layout['spacings'] = [];
 
+  // Pipe joining the upper block to the finger block: [start, end] along s.
+  const joint = res.joint ? insertSpan(res.body, Lb) : null;
+
   if (d.path === 'straight' || holes.length === 0) {
     const t = new Turtle([0, Lb], DOWN);
-    t.forward(Lb);
+    if (joint) {
+      t.forward(joint[0]);
+      t.group = PIPE_GROUP;
+      t.forward(joint[1] - joint[0]);
+      t.group = 0;
+      t.forward(Lb - joint[1]);
+    } else t.forward(Lb);
     const path = t.path;
     for (let k = 0; k + 1 < holes.length; k++) spacings.push({ from: k + 1, to: k + 2, dy: holes[k + 1].s - holes[k].s });
     return finish(path, 0, 0);
@@ -83,8 +100,9 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   // +x and the preview turns the instrument so -x faces the player's fingers.
   const side = behind || d.meanderSide === 'right' ? 1 : -1;
   const top = holes[0];
-  const topMargin = Math.min(top.s, top.diameter / 2 + d.wall + 2);
-  const sTop = top.s - topMargin; // where the finger line starts
+  // With a joining pipe, the finger line starts where the pipe ends.
+  const sTop = joint ? joint[1] : top.s - fingerTopMargin(top.s, top.diameter, d.wall);
+  const topMargin = top.s - sTop;
   const fl = new Turtle([0, 0], DOWN);
   fl.forward(topMargin);
   let raised = false;
@@ -205,7 +223,36 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   // Length used: e + 2n·h + first bend + (2n − 1)·π·Rl, where the first bend
   // is π·R1, or π·Rl plus the crossover when behind.
   const spare = Lu - e - (behind ? cross : Math.PI * (R1 - Rl));
-  if (d.foldUpper && Lu > 0.6 * hMax + e) {
+  if (joint) {
+    // The pipe runs straight up from the finger block; the upper block sits
+    // above it, its legs stacked upwards so the two blocks stay apart.
+    up.group = PIPE_GROUP;
+    up.forward(joint[1] - joint[0]);
+    const Lj = joint[0];
+    // Lead-in so the lower bends clear the socket below.
+    const e0 = Rl + rU + d.wall + 2;
+    // A compact upper block: legs no taller than the finger block, and
+    // 150 mm at most unless the leg length is set.
+    const hJ = d.legLength > 0 ? d.legLength : Math.max(60, Math.min(150, hAuto));
+    up.group = 1;
+    const avail = Lj - e0 - e;
+    // An odd number of legs, 2n + 1, so the last one ends at the top.
+    // Length: e0 + (2n + 1)·h + 2n·π·Rl + e
+    const n = Math.max(1, Math.ceil((avail / (hJ + Math.PI * Rl) - 1) / 2));
+    const h = (avail - 2 * n * Math.PI * Rl) / (2 * n + 1);
+    if (d.foldUpper && avail > hJ && h > 2 * Rl) {
+      up.forward(e0);
+      for (let k = 0; k <= 2 * n; k++) {
+        up.forward(h);
+        if (k < 2 * n) up.turn((k % 2 === 0 ? legSign : -legSign) * Math.PI, Rl);
+      }
+      up.forward(e);
+      legs = 2 * n + 1;
+    } else {
+      up.forward(Lj);
+    }
+    folded = true;
+  } else if (d.foldUpper && Lu > 0.6 * hMax + e) {
     const n = Math.max(1, Math.ceil(spare / (2 * (hMax + Math.PI * Rl))));
     const h = spare / (2 * n) - Math.PI * Rl;
     if (h > Rl) {

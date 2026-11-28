@@ -16,6 +16,15 @@ export interface BodyProfile {
   r1: number;
   bellLength: number; // 0 = no bell
   bellRadius: number;
+  /** A length of plain pipe set into the body bore, placed from the bell end. */
+  insert?: { fromEnd: number; length: number; r: number };
+}
+
+/** Body-coordinate span [start, end] of the pipe insert, if any. */
+export function insertSpan(p: BodyProfile, Lb: number): [number, number] | null {
+  if (!p.insert) return null;
+  const end = Lb - p.insert.fromEnd;
+  return [end - p.insert.length, end];
 }
 
 export interface SolveSpec {
@@ -64,6 +73,8 @@ export interface SolveResult {
 }
 
 export function bodyRadius(p: BodyProfile, s: number, Lb: number): number {
+  const span = insertSpan(p, Lb);
+  if (span && s >= span[0] && s <= span[1]) return p.insert!.r;
   const bl = Math.min(p.bellLength, Lb * 0.6);
   const Lc = Lb - bl;
   let r: number;
@@ -113,13 +124,26 @@ export function buildNetwork(spec: SolveSpec, st: State, openCount: number): Net
       el.push({ kind: 'seg', L: (a - b) * MM, a: bodyRadius(p, (a + b) / 2, Lb) * MM });
     }
   };
+  // Steps in the bore (the ends of a pipe insert) must fall on slice edges.
+  const span = insertSpan(p, Lb);
+  const steps = span ? span.filter((x) => x > 0 && x < Lb).sort((a, b) => b - a) : [];
+  const addBodySplit = (from: number, to: number) => {
+    let a = from;
+    for (const st of steps) {
+      if (st < a && st > to) {
+        addBody(a, st);
+        a = st;
+      }
+    }
+    addBody(a, to);
+  };
   for (const h of holes) {
-    addBody(s, h.s);
+    addBodySplit(s, h.s);
     s = h.s;
     const a = bodyRadius(p, h.s, Lb);
     el.push({ kind: 'hole', a: a * MM, b: (st.dia[h.i] / 2) * MM, t: st.chim[h.i] * MM, open: h.i < openCount });
   }
-  addBody(s, 0);
+  addBodySplit(s, 0);
   if (st.Lp > 0) el.push({ kind: 'seg', L: st.Lp * MM, a: spec.pipe.r * MM });
   for (let i = spec.head.length - 1; i >= 0; i--) {
     const h = spec.head[i];
@@ -269,7 +293,9 @@ export function solveInstrument(spec: SolveSpec): SolveResult {
       for (let attempt = 0; attempt < 8; attempt++) {
         const gapBelow = i === 0 ? 3 : (st.dia[i] + st.dia[i - 1]) / 2 + 2;
         const lo = i === 0 ? 3 : st.d[i - 1] + gapBelow;
-        const hi = Math.max(lo, st.Lb - (st.dia[i] / 2 + 2));
+        // Holes stay below a pipe insert.
+        const capFromEnd = spec.body.insert ? spec.body.insert.fromEnd - st.dia[i] / 2 - 1 : Infinity;
+        const hi = Math.max(lo, Math.min(st.Lb - (st.dia[i] / 2 + 2), capFromEnd));
         const r = solve1D(
           st.d[i],
           lo,

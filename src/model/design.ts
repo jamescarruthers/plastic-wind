@@ -85,6 +85,8 @@ export interface Design {
   meanderSide: 'right' | 'left';
   loopDirection: 'side' | 'back';
   bellFold: boolean;
+  midPipe: boolean;
+  midPipeLength: number;
   foldUpper: boolean;
   legLength: number;
   bendWall: number;
@@ -172,6 +174,8 @@ export const DEFAULT_DESIGN: Design = {
   meanderSide: 'right',
   loopDirection: 'side',
   bellFold: false,
+  midPipe: false,
+  midPipeLength: 80,
   foldUpper: true,
   legLength: 0,
   bendWall: 1.6,
