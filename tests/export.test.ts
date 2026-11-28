@@ -130,9 +130,14 @@ describe('air path is open', () => {
 describe('pipe run with printed U-bends', () => {
   const P = (fam: string, v: string, patch: Partial<Design>): Design => ({ ...applyPreset({ ...DEFAULT_DESIGN }, fam, v), ...patch }) as Design;
 
+  const one = { split: 'none', segment: false } as const;
   it.each([
-    ['bass clarinet, 2 bends, 22 mm copper', P('clarinet', 'bass', { pipeLengthMode: 'auto', pipeBends: 2 })],
-    ['great bass crumhorn, 3 bends, overflow pipe', P('crumhorn', 'greatbass', { pipeLengthMode: 'auto', pipeBends: 3 })],
+    ['bass clarinet, 2 bends, 22 mm copper, round tube', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 2 })],
+    ['great bass crumhorn, 3 bends, overflow pipe, round tube', P('crumhorn', 'greatbass', { ...one, pipeLengthMode: 'auto', pipeBends: 3 })],
+    ['bass clarinet, 1 bend, slab', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 1, bodyStyle: 'slab' })],
+    ['bass clarinet, 1 bend, square blocks', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 1, bodyStyle: 'blocks' })],
+    ['bass clarinet, 1 bend, rounded blocks', P('clarinet', 'bass', { ...one, pipeLengthMode: 'auto', pipeBends: 1, bodyStyle: 'rounded' })],
+    ['bass clarinet, 1 bend, round section, one piece standing', P('clarinet', 'bass', { ...one, path: 'straight', pipeLengthMode: 'auto', pipeBends: 1 })],
   ])('%s', async (_l, d) => {
     const g = await generate(M, d, { verify: true });
     const run = g.res.pipeRun!;
@@ -152,6 +157,23 @@ describe('pipe run with printed U-bends', () => {
       m.delete();
     }
     expect(g.build!.verify!.bellOpen).toBe(true);
+  });
+
+  it('splits each bend into glued halves when the body is printed in halves', async () => {
+    const g = await generate(M, P('clarinet', 'bass', { pipeLengthMode: 'auto', pipeBends: 2 }));
+    const halves = g.build!.print.filter((p) => p.name.startsWith('Pipe U-bend'));
+    expect(halves.map((h) => h.name)).toEqual([
+      'Pipe U-bend 1/2 front half',
+      'Pipe U-bend 1/2 back half',
+      'Pipe U-bend 2/2 front half',
+      'Pipe U-bend 2/2 back half',
+    ]);
+    // Each half sits on its cut face.
+    for (const h of halves) {
+      let minZ = Infinity;
+      for (let i = 2; i < h.positions.length; i += 3) minZ = Math.min(minZ, h.positions[i]);
+      expect(Math.abs(minZ)).toBeLessThan(1e-3);
+    }
   });
 
   it('drops bends that leave pieces too short to reach both sockets', async () => {

@@ -751,14 +751,24 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     });
     if (bendsAt.length) {
       const ub = buildUBend(M, res, keep);
+      const push = 'Push the pipe ends in until they reach the bottom of each socket.';
+      const round = d.bodyStyle === 'tube' || d.bodyStyle === 'web';
       bendsAt.forEach((b, i) => {
+        const name = `Pipe U-bend ${i + 1}/${bendsAt.length}`;
         const turned = b.mirror ? keep(ub.mirror([1, 0, 0])) : ub;
         const phi = (Math.atan2(b.dir[1], b.dir[0]) * 180) / Math.PI - 90;
         const placed = keep(keep(turned.rotate([0, 0, phi])).translate(b.p));
-        preview.push(toMesh(pv(placed), `Pipe U-bend ${i + 1}/${bendsAt.length}`, 'accessory', COLORS.accessory));
-        print.push(
-          toMesh(ub, `Pipe U-bend ${i + 1}/${bendsAt.length}`, 'accessory', COLORS.accessory, 'Print lying flat. Push the pipe ends in until they reach the bottom of each socket.'),
-        );
+        preview.push(toMesh(pv(placed), name, 'accessory', COLORS.accessory));
+        if (split) {
+          // Like the body: two halves, each printed cut face down, then glued.
+          const front = keep(ub.trimByPlane([0, 0, 1], 0));
+          const backHalf = keep(keep(ub.trimByPlane([0, 0, -1], 0)).rotate([0, 180, 0]));
+          print.push(toMesh(front, `${name} front half`, 'accessory', COLORS.accessory, `Print cut face down and glue to the back half. ${push}`));
+          print.push(toMesh(backHalf, `${name} back half`, 'accessory', COLORS.accessory, `Print cut face down and glue to the front half. ${push}`));
+        } else {
+          const how = round ? 'Print lying flat, with supports under the curved underside only.' : 'Print lying flat.';
+          print.push(toMesh(ub, name, 'accessory', COLORS.accessory, `${how} ${push}`));
+        }
       });
     }
     if (jointSpan) {

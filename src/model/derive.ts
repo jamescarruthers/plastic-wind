@@ -265,7 +265,9 @@ export function resolve(d: Design): Resolved {
   if (usePipe) {
     const sockR = (pipe.od + d.clearance) / 2;
     const wallU = Math.max(2.4, d.wall * 0.8);
-    const R = sockR + wallU;
+    // Housings overlap a little rather than just touching; the wall
+    // between the two sockets is still one and a half walls thick.
+    const R = sockR + wallU * 0.75;
     const stub = 3;
     pipeBend = { R, stub, uLen: Math.PI * R + 2 * stub, sockR, wall: wallU, minPiece: 2 * sd + 10 };
   }
