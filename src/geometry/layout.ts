@@ -212,9 +212,13 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
       up.group = 1;
       for (let k = 0; k < n; k++) {
         if (k === 0 && behind) {
+          // The crossover is its own block, so it does not cover the front of
+          // the finger section.
+          up.group = 4;
           up.turn((legSign * Math.PI) / 2, Rl);
           up.forward(cross);
           up.turn((legSign * Math.PI) / 2, Rl);
+          up.group = 1;
         } else {
           up.turn(legSign * Math.PI, k === 0 ? R1 : Rl); // over the top, now heading down
         }
