@@ -563,16 +563,35 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
   }
 
   // ----- helpers that need M
+  /**
+   * Flat body whose outline follows the bore. The outline is filleted so the
+   * notches where one run of tube meets the next become smooth curves, and
+   * the bell end is cut square so the bore opens.
+   */
   function slab(path: Path, rad: (s: number) => number, half: number): Manifold {
     const ss = path.samples(4, Math.PI / 24);
-    const segs = 32;
+    const segs = 48;
     const circles = ss.map((s) => {
       const { p } = path.at(s);
       return keep(keep(CrossSection.circle(rad(s), segs)).translate([p[0], p[1]]));
     });
     const hulls: ReturnType<typeof CrossSection.circle>[] = [];
     for (let i = 0; i + 1 < circles.length; i++) hulls.push(keep(CrossSection.hull([circles[i], circles[i + 1]])));
-    const outline = keep(CrossSection.union(hulls));
+    let outline = keep(CrossSection.union(hulls));
+    let minR = Infinity;
+    for (const s of ss) minR = Math.min(minR, rad(s));
+    const c = Math.max(3, minR);
+    outline = keep(keep(outline.offset(c, 'Round', 2, 64)).offset(-c, 'Round', 2, 64));
+    // Square off the bell end, just wider than the body there.
+    const L = path.length;
+    const e = path.at(L);
+    const n: [number, number] = [-e.t[1], e.t[0]];
+    const w = rad(L) + 0.3;
+    const len = rad(L) + c + 2;
+    const pt = (a: number, b: number): [number, number] => [e.p[0] + n[0] * a + e.t[0] * b, e.p[1] + n[1] * a + e.t[1] * b];
+    let cut = [pt(-w, 0), pt(w, 0), pt(w, len), pt(-w, len)];
+    if (signedArea(cut) < 0) cut = cut.reverse();
+    outline = keep(outline.subtract(keep(new CrossSection([cut]))));
     return keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
   }
 

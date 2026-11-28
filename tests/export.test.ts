@@ -66,6 +66,10 @@ describe('bore topology', () => {
     ['folded conical, bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), split: 'none', segment: false }],
     ['square blocks, rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'blocks', split: 'none', segment: false }],
     ['rounded blocks, bass clarinet', { ...applyPreset({ ...DEFAULT_DESIGN }, 'clarinet', 'bass'), bodyStyle: 'rounded', split: 'none', segment: false }],
+    ['flat slab, straight chalumeau', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), bodyStyle: 'slab', split: 'none', segment: false }],
+    ['flat slab, folded rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'slab', split: 'none', segment: false }],
+    ['flat slab, dulcian with bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), bodyStyle: 'slab', split: 'none', segment: false }],
+    ['webs between bends, rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'web', split: 'none', segment: false }],
     ['rounded blocks, straight chalumeau', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), bodyStyle: 'rounded', split: 'none', segment: false }],
   ];
   it.each(cases)('%s: genus is 1 + number of holes', async (_l, d) => {
