@@ -1,6 +1,6 @@
 // Turns the user's Design into the numbers the solver and geometry need.
 
-import { isFlatStyle, type Design } from './design';
+import { isFlatStyle, loopsBehind, type Design } from './design';
 import { getPipe, type PipeSize } from './pipes';
 import { midiToFreq, noteToMidi, parseNoteList, scaleNotes } from './notes';
 import type { BodyProfile, HeadSegment, SolveSpec } from '../acoustics/solver';
@@ -229,10 +229,20 @@ export function resolve(d: Design): Resolved {
   let slabHalf = (section === 'round' ? maxBoreR : maxBoreR * pointScale * Math.SQRT2) + d.wall;
   // Block bodies hold the inlet socket inside them.
   if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') slabHalf = Math.max(slabHalf, socket.r + Math.max(2.4, d.wall * 0.8));
+  const behind = loopsBehind(d);
   const chimney = (i: number, r: number) => {
+    const thumb = isBackHole(fingers[nHoles - i - 1] ?? '');
+    if (behind && !thumb) {
+      // Drilled through the front edge, in the plane of the bore. Block
+      // bodies square off the finger section at its widest bore.
+      if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') return (Math.max(r0, r1) - r) * pointScale + d.wall;
+      return d.wall;
+    }
     if (isFlatStyle(d.bodyStyle)) return slabHalf - (section === 'round' ? r : r * pointScale * Math.SQRT2);
-    const back = isBackHole(fingers[nHoles - i - 1] ?? '');
-    const pointed = section === 'lemon' || (section === 'drop' && !back);
+    // Out of the plane: front holes towards +z; thumb holes towards -z, or
+    // towards +z (the side) when the loops go behind.
+    const up = !thumb || behind;
+    const pointed = section === 'lemon' || (section === 'drop' && up);
     return pointed ? d.wall * Math.SQRT2 : d.wall;
   };
 

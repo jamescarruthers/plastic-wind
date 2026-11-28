@@ -4,6 +4,11 @@
 // Front holes are drilled towards +z, thumb holes towards -z, so the split
 // plane z = 0 passes through the whole bore.
 //
+// With the loops behind the finger holes, the layout is the same shape but
+// the instrument is held edge on: finger holes are drilled out of the front
+// edge (in the bore plane), the thumb hole out of the side (+z), and the
+// folded legs sit behind the loops.
+//
 // Folded mode adds two kinds of U-bend:
 //  * Loops to one side between finger holes, which soak up bore length so the
 //    holes sit at a comfortable spacing.
@@ -15,14 +20,18 @@ import { isBackHole } from '../model/derive';
 import type { SolveResult } from '../acoustics/solver';
 import { bodyRadius } from '../acoustics/solver';
 import { Path, Turtle, type Vec2 } from './path';
-import { isFlatStyle } from '../model/design';
+import { isFlatStyle, loopsBehind } from '../model/design';
+
+export type V3 = [number, number, number];
 
 export interface PlacedHole {
   number: number; // 1 = top
   finger: string;
   s: number; // along the body path from the inlet
   pos: Vec2;
-  face: 1 | -1; // +1 front (+z), -1 back (-z)
+  face: 'front' | 'back' | 'side';
+  /** Drilling direction from the bore centre line, in layout coordinates. */
+  dir: V3;
   diameter: number;
   chimney: number;
 }
@@ -42,6 +51,7 @@ const UP = Math.PI / 2;
 
 export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   const d = res.d;
+  const behind = loopsBehind(d);
   const warnings: string[] = [];
   const Lb = sol.bodyLength;
   const radiusAt = (s: number) => bodyRadius(res.body, s, Lb);
@@ -69,7 +79,9 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   }
 
   // ---- Finger line, from its top (0,0) down to the bell end.
-  const side = d.meanderSide === 'right' ? 1 : -1; // loops go to +x for "right"
+  // Loops go to +x for "right". When they go behind, the layout keeps them on
+  // +x and the preview turns the instrument so -x faces the player's fingers.
+  const side = behind || d.meanderSide === 'right' ? 1 : -1;
   const top = holes[0];
   const topMargin = Math.min(top.s, top.diameter / 2 + d.wall + 2);
   const sTop = top.s - topMargin; // where the finger line starts
@@ -155,7 +167,12 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
     fl.forward(Math.max(0, tail - clearBelow - Math.PI * Rb));
     if (tail - clearBelow - Math.PI * Rb < 0) warnings.push('The bell section is too short to fold; it ends in the bend.');
   } else {
-    fl.forward(tail);
+    // The bell gets its own block, starting clear of the lowest hole.
+    const lead = Math.min(tail, last.diameter / 2 + d.wall + 2);
+    fl.forward(lead);
+    fl.group = 3;
+    fl.forward(tail - lead);
+    fl.group = 0;
   }
   if (raised) warnings.push('Some finger spacings were widened to make room for the U-bends. A narrower bore allows tighter bends.');
 
@@ -168,26 +185,41 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   const rF = maxR(sTop, bellStartS);
   const Rl = rU + d.bendWall / 2;
   const R1 = (rU + rF + d.bendWall) / 2;
-  // Lowest y the legs may reach without hitting the bell.
-  const yLimit = d.bellFold ? fl.path.bounds().min[1] : fl.path.at(bellStartS - sTop).p[1];
-  const hAuto = Math.max(4 * Rl, -yLimit - Rl - (res.body.bellRadius - res.body.r0));
+  const flBounds = fl.path.bounds();
+  // Lowest y the legs may reach without hitting the bell. Legs behind the
+  // loops sit clear of everything, so they may run to the bottom.
+  const yLimit = d.bellFold || behind ? flBounds.min[1] : fl.path.at(bellStartS - sTop).p[1];
+  const hAuto = Math.max(4 * Rl, -yLimit - Rl - (behind ? 0 : res.body.bellRadius - res.body.r0));
   const hMax = d.legLength > 0 ? d.legLength : hAuto;
   const e = Rl + radiusAt(0) + 2 + Math.max(0, res.socket.r - Rl);
   const up = new Turtle([0, 0], UP);
   let folded = false;
-  // Length used: e + 2n·h + π·R1 + (2n − 1)·π·Rl
-  const spare = Lu - e - Math.PI * (R1 - Rl);
+  // Legs go opposite the loops, or behind them. Heading up, a positive (left)
+  // turn swings to -x.
+  const legSign = behind ? -side : side;
+  // Behind: cross over above the top hole, past everything the finger
+  // section reaches, then fold downwards.
+  const reach = side > 0 ? flBounds.max[0] : -flBounds.min[0];
+  const X1 = behind && reach > 0.5 ? reach + maxR(sTop, Lb) + rU + d.bendWall : 2 * R1;
+  const cross = behind ? Math.max(0, X1 - 2 * Rl) : 0;
+  // Length used: e + 2n·h + first bend + (2n − 1)·π·Rl, where the first bend
+  // is π·R1, or π·Rl plus the crossover when behind.
+  const spare = Lu - e - (behind ? cross : Math.PI * (R1 - Rl));
   if (d.foldUpper && Lu > 0.6 * hMax + e) {
     const n = Math.max(1, Math.ceil(spare / (2 * (hMax + Math.PI * Rl))));
     const h = spare / (2 * n) - Math.PI * Rl;
     if (h > Rl) {
-      // Heading up, a left turn (positive) swings to -x: the legs go to the
-      // side opposite the loops.
       up.group = 1;
       for (let k = 0; k < n; k++) {
-        up.turn(side * Math.PI, k === 0 ? R1 : Rl); // over the top, now heading down
+        if (k === 0 && behind) {
+          up.turn((legSign * Math.PI) / 2, Rl);
+          up.forward(cross);
+          up.turn((legSign * Math.PI) / 2, Rl);
+        } else {
+          up.turn(legSign * Math.PI, k === 0 ? R1 : Rl); // over the top, now heading down
+        }
         up.forward(h);
-        up.turn(-side * Math.PI, Rl); // round the bottom, heading up
+        up.turn(-legSign * Math.PI, Rl); // round the bottom, heading up
         up.forward(k === n - 1 ? h + e : h);
       }
       legs = 2 * n;
@@ -204,12 +236,18 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
     if (Math.abs(path.length - Lb) > 0.5) warnings.push(`Layout length mismatch (${path.length.toFixed(1)} vs ${Lb.toFixed(1)} mm).`);
     const placed: PlacedHole[] = holes.map((h) => {
       const { p } = path.at(h.s);
+      const thumb = isBackHole(h.finger);
+      // Behind: finger holes go out of the front edge (-x, away from the
+      // loops) and the thumb hole out of the side (+z).
+      const face: PlacedHole['face'] = behind ? (thumb ? 'side' : 'front') : thumb ? 'back' : 'front';
+      const dir: V3 = behind ? (thumb ? [0, 0, 1] : [-side, 0, 0]) : thumb ? [0, 0, -1] : [0, 0, 1];
       return {
         number: h.number,
         finger: h.finger,
         s: h.s,
         pos: p,
-        face: isBackHole(h.finger) ? -1 : 1,
+        face,
+        dir,
         diameter: h.diameter,
         chimney: h.chimney,
       };
@@ -218,7 +256,7 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
     for (const sp of spacings) {
       const a = placed[sp.from - 1];
       const b = placed[sp.to - 1];
-      const bothFront = a.face === 1 && b.face === 1;
+      const bothFront = a.face === 'front' && b.face === 'front';
       if (bothFront && sp.dy > 38) {
         warnings.push(
           d.path === 'folded' && d.meander

@@ -25,7 +25,7 @@ export interface HoleRow {
   diameter: number;
   printed: number;
   chimney: number;
-  face: 'front' | 'back';
+  face: 'front' | 'back' | 'side';
 }
 
 export function noteRows(g: Generated): NoteRow[] {
@@ -51,13 +51,13 @@ export function holeRows(g: Generated): HoleRow[] {
   return g.lay.holes.map((h) => ({
     number: h.number,
     finger: h.finger,
-    fingerName: FINGER_NAMES[h.finger] ?? h.finger,
+    fingerName: (FINGER_NAMES[h.finger] ?? h.finger).replace('(back)', h.face === 'side' ? '(side)' : '(back)'),
     fromInlet: h.s,
     fromEnd: g.sol.bodyLength - h.s,
     diameter: h.diameter,
     printed: Math.max(1, h.diameter - d.pilotUndersize),
     chimney: h.chimney,
-    face: h.face > 0 ? 'front' : 'back',
+    face: h.face,
   }));
 }
 

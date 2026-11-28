@@ -26,6 +26,8 @@ function variants(): [string, Design][] {
     ['blocks, folded halves', { ...applyPreset({ ...DEFAULT_DESIGN }, 'crumhorn', 'bass'), bodyStyle: 'blocks' }],
     ['rounded blocks, dulcian with bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), bodyStyle: 'rounded' }],
     ['blocks, straight with pipe and spigot fit', { ...base, bodyStyle: 'blocks', pipeLengthMode: 'fixed', pipeLength: 120, bodyFit: 'spigot', matchPipeBore: false, boreDiameter: 10 }],
+    ['loops behind, halves, tube', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), loopDirection: 'back' }],
+    ['loops behind, halves, rounded blocks, bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), loopDirection: 'back', bodyStyle: 'rounded' }],
     ['custom list, no thumb hole', { ...base, rangeMode: 'list', noteList: 'D4 E4 F#4 G4 A4 B4 C#5', thumbHole: false }],
   ];
 }
@@ -70,6 +72,10 @@ describe('bore topology', () => {
     ['flat slab, folded rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'slab', split: 'none', segment: false }],
     ['flat slab, dulcian with bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), bodyStyle: 'slab', split: 'none', segment: false }],
     ['webs between bends, rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'web', split: 'none', segment: false }],
+    ['loops behind, tube, rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), loopDirection: 'back', split: 'none', segment: false }],
+    ['loops behind, slab, dulcian', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), loopDirection: 'back', bodyStyle: 'slab', split: 'none', segment: false }],
+    ['loops behind, square blocks, bass crumhorn', { ...applyPreset({ ...DEFAULT_DESIGN }, 'crumhorn', 'bass'), loopDirection: 'back', bodyStyle: 'blocks', split: 'none', segment: false }],
+    ['loops behind, rounded blocks, bass clarinet', { ...applyPreset({ ...DEFAULT_DESIGN }, 'clarinet', 'bass'), loopDirection: 'back', bodyStyle: 'rounded', split: 'none', segment: false }],
     ['rounded blocks, straight chalumeau', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), bodyStyle: 'rounded', split: 'none', segment: false }],
   ];
   it.each(cases)('%s: genus is 1 + number of holes', async (_l, d) => {
