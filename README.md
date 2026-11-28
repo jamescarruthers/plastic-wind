@@ -41,6 +41,9 @@ the bore.
   at the spacing you set, however far apart the acoustics want them; legs on
   the other side fold the hole-free upper bore (as on a dulcian or rackett);
   the bell can turn back up, saxophone style.
+- *Alternating loops*: loops go left and right in turn, so the instrument
+  balances about the finger holes. Folded legs then cross over above the top
+  hole and run down beyond the loops.
 - *Joining pipe*: the hole-free upper bore prints as its own block, joined to
   the finger block by a length of the inlet pipe size. The pipe is part of
   the bore in the acoustic model, and saves printing.

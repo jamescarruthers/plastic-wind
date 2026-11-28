@@ -98,7 +98,15 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   // ---- Finger line, from its top (0,0) down to the bell end.
   // Loops go to +x for "right". When they go behind, the layout keeps them on
   // +x and the preview turns the instrument so -x faces the player's fingers.
-  const side = behind || d.meanderSide === 'right' ? 1 : -1;
+  const side = behind || d.meanderSide !== 'left' ? 1 : -1;
+  // Alternate sides: each loop goes to the other side from the one before.
+  const alternate = !behind && d.meanderSide === 'alternate';
+  let loopCount = 0;
+  const nextSide = () => {
+    const ls = alternate && loopCount % 2 === 1 ? -side : side;
+    loopCount++;
+    return ls;
+  };
   const top = holes[0];
   // With a joining pipe, the finger line starts where the pipe ends.
   const sTop = joint ? joint[1] : top.s - fingerTopMargin(top.s, top.diameter, d.wall);
@@ -127,13 +135,14 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
       if (target < minDy) raised = true;
       const arm = extra / 2;
       const slack = (dy - minDy) / 2;
+      const ls = nextSide();
       fl.forward(va + slack);
       fl.group = 10 + k;
-      fl.turn((side * Math.PI) / 2, R);
+      fl.turn((ls * Math.PI) / 2, R);
       fl.forward(arm);
-      fl.turn(-side * Math.PI, R);
+      fl.turn(-ls * Math.PI, R);
       fl.forward(arm);
-      fl.turn((side * Math.PI) / 2, R);
+      fl.turn((ls * Math.PI) / 2, R);
       fl.group = 0;
       fl.forward(vb + slack);
       loops++;
@@ -148,12 +157,13 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
         dy2 = 4 * R * Math.sin(th);
       }
       const v = Math.max(0, (dL - 4 * R * th) / 2);
+      const ls = nextSide();
       fl.forward(v);
       fl.group = 10 + k;
-      fl.turn(side * th, R);
-      fl.turn(-side * th, R);
-      fl.turn(-side * th, R);
-      fl.turn(side * th, R);
+      fl.turn(ls * th, R);
+      fl.turn(-ls * th, R);
+      fl.turn(-ls * th, R);
+      fl.turn(ls * th, R);
       fl.group = 0;
       fl.forward(Math.max(0, dL - v - 4 * R * th));
       loops++;
@@ -215,14 +225,19 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   // Legs go opposite the loops, or behind them. Heading up, a positive (left)
   // turn swings to -x.
   const legSign = behind ? -side : side;
+  // Which way along x the legs go: heading up, a positive turn goes to -x.
+  const legX = -legSign;
   // Behind: cross over above the top hole, past everything the finger
   // section reaches, then fold downwards.
-  const reach = side > 0 ? flBounds.max[0] : -flBounds.min[0];
-  const X1 = behind && reach > 0.5 ? reach + maxR(sTop, Lb) + rU + d.bendWall : 2 * R1;
-  const cross = behind ? Math.max(0, X1 - 2 * Rl) : 0;
+  // When loops sit on the legs' side too (behind, or alternating), the legs
+  // cross over above the top hole and fold down beyond the loops' reach.
+  const reach = legX > 0 ? flBounds.max[0] : -flBounds.min[0];
+  const useCross = behind || (alternate && reach > 0.5);
+  const X1 = useCross && reach > 0.5 ? reach + maxR(sTop, Lb) + rU + d.bendWall : 2 * R1;
+  const cross = useCross ? Math.max(0, X1 - 2 * Rl) : 0;
   // Length used: e + 2n·h + first bend + (2n − 1)·π·Rl, where the first bend
   // is π·R1, or π·Rl plus the crossover when behind.
-  const spare = Lu - e - (behind ? cross : Math.PI * (R1 - Rl));
+  const spare = Lu - e - (useCross ? cross : Math.PI * (R1 - Rl));
   if (joint) {
     // The pipe runs straight up from the finger block; the upper block sits
     // above it, its legs stacked upwards so the two blocks stay apart.
@@ -258,7 +273,7 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
     if (h > Rl) {
       up.group = 1;
       for (let k = 0; k < n; k++) {
-        if (k === 0 && behind) {
+        if (k === 0 && useCross) {
           // The crossover is its own block, so it does not cover the front of
           // the finger section.
           up.group = 4;

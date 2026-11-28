@@ -82,7 +82,7 @@ export interface Design {
   handGap: number;
   thumbSpacing: number;
   meander: boolean;
-  meanderSide: 'right' | 'left';
+  meanderSide: 'right' | 'left' | 'alternate';
   loopDirection: 'side' | 'back';
   bellFold: boolean;
   midPipe: boolean;
