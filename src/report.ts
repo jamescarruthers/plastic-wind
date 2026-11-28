@@ -80,6 +80,7 @@ export function buildNotesText(g: Generated): string {
   const pipeName = PIPES.find((p) => p.id === d.pipe)?.label ?? 'pipe';
   if (g.res.usePipe) L.push(`Inlet pipe: ${pipeName}, cut to ${f1(g.sol.pipeLength)} mm. Deburr both ends inside and out.`);
   else L.push(`No inlet pipe: the mouthpiece plugs straight into the body (${pipeName} size fitting).`);
+  if (g.res.joint) L.push(`Joining pipe: ${pipeName}, cut to ${f1(g.res.joint.length)} mm. It joins the upper block to the finger block.`);
   L.push(`Layout: ${d.path}${g.lay.loops ? `, ${g.lay.loops} loop(s) between holes` : ''}${g.lay.legs ? `, ${g.lay.legs} folded legs` : ''}`);
   L.push('');
   L.push('Tone holes (1 = nearest the mouthpiece)');

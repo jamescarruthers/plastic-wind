@@ -83,6 +83,17 @@ describe('air path is open', () => {
     ['loops behind, bass dulcian, web', P('dulcian', 'bass', { ...one, loopDirection: 'back', bodyStyle: 'web' })],
     ['loops behind, bass dulcian, rounded blocks', P('dulcian', 'bass', { ...one, loopDirection: 'back', bodyStyle: 'rounded' })],
     ['loops behind, alto dulcian, halves', P('dulcian', 'alto', { loopDirection: 'back' })],
+    ['alternating loops, rackett, tube', P('rackett', 'tenor', { ...one, alternateLoops: true })],
+    ['alternating loops, rackett, halves', P('rackett', 'tenor', { alternateLoops: true })],
+    ['alternating loops starting left, rackett, tube', P('rackett', 'tenor', { ...one, alternateLoops: true, meanderSide: 'left' })],
+    ['alternating loops, bass dulcian, rounded blocks, bell turned up', P('dulcian', 'bass', { ...one, alternateLoops: true, bodyStyle: 'rounded' })],
+    ['alternating loops, bass clarinet, slab', P('clarinet', 'bass', { ...one, alternateLoops: true, bodyStyle: 'slab' })],
+    ['alternating loops, great bass crumhorn, web', P('crumhorn', 'greatbass', { ...one, alternateLoops: true, bodyStyle: 'web' })],
+    ['alternating loops with joining pipe, rackett, square blocks', P('rackett', 'tenor', { ...one, alternateLoops: true, midPipe: true, bodyStyle: 'blocks' })],
+    ['joining pipe, rackett, halves', P('rackett', 'tenor', { midPipe: true })],
+    ['joining pipe, rackett, square blocks', P('rackett', 'tenor', { ...one, midPipe: true, bodyStyle: 'blocks' })],
+    ['joining pipe, rackett, rounded blocks, loops behind', P('rackett', 'tenor', { ...one, midPipe: true, bodyStyle: 'rounded', loopDirection: 'back' })],
+    ['joining pipe, bass dulcian, slab, loops behind', P('dulcian', 'bass', { ...one, midPipe: true, bodyStyle: 'slab', loopDirection: 'back' })],
   ];
   it.each(cases)('%s', async (_l, d) => {
     const g = await generate(M, d, { verify: true });
@@ -93,14 +104,21 @@ describe('air path is open', () => {
       expect(h.reachesBore, `hole ${h.number} reaches the bore`).toBe(true);
       expect(h.breaksOut, `hole ${h.number} breaks out of the body`).toBe(true);
     }
-    // One-piece bodies come out as a single solid.
+    // One-piece bodies come out as one solid each; with a joining pipe there
+    // are two, the upper block and the finger block.
     if (d.split === 'none') {
-      const body = g.build!.print.find((p) => p.role === 'body')!;
-      const m = new M.Manifold(new M.Mesh({ numProp: 3, vertProperties: body.positions, triVerts: body.indices }));
-      const parts = m.decompose();
-      expect(parts.length).toBe(1);
-      parts.forEach((c) => c.delete());
-      m.delete();
+      const bodies = g.build!.print.filter((p) => p.role === 'body');
+      expect(bodies.map((b) => b.name)).toEqual(g.res.joint ? ['Upper block', 'Finger block'].filter((n) => bodies.some((b) => b.name === n)) : ['Body']);
+      if (g.res.joint) expect(bodies.length).toBe(2);
+      for (const body of bodies) {
+        const m = new M.Manifold(new M.Mesh({ numProp: 3, vertProperties: body.positions, triVerts: body.indices }));
+        const parts = m.decompose();
+        expect(parts.length).toBe(1);
+        parts.forEach((c) => c.delete());
+        m.delete();
+      }
     }
+    // Every note still tunes with a joining pipe in the bore (cylindrical bores).
+    if (g.res.joint && d.boreType === 'cylindrical') for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
   });
 });

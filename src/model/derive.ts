@@ -55,6 +55,8 @@ export interface Resolved {
   body: BodyProfile;
   maxBoreR: number;
   socket: { kind: 'socket' | 'spigot'; r: number; depth: number };
+  /** Pipe joining the upper block to the finger block, if wanted. */
+  joint: { length: number } | null;
   mouthpiece: MouthpieceSpec;
   spec: SolveSpec;
   outerR: (r: number) => number;
@@ -269,8 +271,21 @@ export function resolve(d: Design): Resolved {
     chimney,
   };
 
+  // Pipe joint between the upper and finger blocks.
+  let joint: Resolved['joint'] = null;
+  if (d.midPipe) {
+    if (d.pipeLengthMode === 'auto') warnings.push('The block-joining pipe is off while the inlet pipe length is calculated: the inlet pipe already replaces the upper bore.');
+    else if (nHoles === 0) warnings.push('The block-joining pipe needs at least one tone hole to place it above.');
+    else {
+      const minLen = 2 * d.socketDepth + 10;
+      if (d.midPipeLength < minLen) warnings.push(`The joining pipe must be at least ${minLen} mm (two sockets plus a gap); using ${minLen} mm.`);
+      joint = { length: Math.max(d.midPipeLength, minLen) };
+    }
+  }
+
   return {
     d,
+    joint,
     section,
     slabHalf,
     pipe,

@@ -18,6 +18,7 @@ interface Result {
   bodyLength: number;
   pipeLength: number;
   usePipe: boolean;
+  jointLength: number;
   conical: boolean;
   loops: number;
   legs: number;
@@ -31,12 +32,18 @@ interface Result {
 
 const STORAGE_KEY = 'plastic-wind-design';
 
+/** Bring older saved designs up to date. */
+function migrate(d: Design): Design {
+  if (d.meanderSide === 'alternate') return { ...d, meanderSide: 'right', alternateLoops: true };
+  return d;
+}
+
 function loadInitial(): Design {
   const fromHash = decodeDesign(location.hash.slice(1));
-  if (fromHash) return fromHash;
+  if (fromHash) return migrate(fromHash);
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return { ...DEFAULT_DESIGN, ...JSON.parse(saved) };
+    if (saved) return migrate({ ...DEFAULT_DESIGN, ...JSON.parse(saved) });
   } catch {
     /* storage unavailable */
   }
@@ -235,7 +242,7 @@ function update(key: keyof Design, value: unknown) {
     if (key === 'doubleReedSeat') design = { ...design, reedLength: DOUBLE_REED_DEFAULT_LENGTH[String(value)] ?? design.reedLength };
   }
   // Re-render the form when visibility may have changed.
-  const structural = ['family', 'variant', 'exciter', 'singleReedMode', 'doubleReedSeat', 'membraneNozzle', 'pipe', 'pipeLengthMode', 'boreType', 'matchPipeBore', 'bell', 'rangeMode', 'path', 'meander', 'foldUpper', 'split', 'dowels', 'thumbHole', 'reedSize'];
+  const structural = ['midPipe', 'loopDirection', 'alternateLoops', 'family', 'variant', 'exciter', 'singleReedMode', 'doubleReedSeat', 'membraneNozzle', 'pipe', 'pipeLengthMode', 'boreType', 'matchPipeBore', 'bell', 'rangeMode', 'path', 'meander', 'foldUpper', 'split', 'dowels', 'thumbHole', 'reedSize'];
   if (structural.includes(key) || prev.family !== design.family) renderForm();
   if (key === 'family' || key === 'variant') viewer.resetFit();
   persist();
@@ -280,6 +287,7 @@ function renderResult() {
     stat('Range', `${low.name} – ${high.name}`),
     stat('Body bore', `${fmt(r.bodyLength, 0)} mm`),
     r.usePipe ? stat('Pipe cut length', `${fmt(r.pipeLength, 0)} mm`) : stat('Holes', String(r.holes.length)),
+    ...(r.jointLength > 0 ? [stat('Joining pipe', `${fmt(r.jointLength, 0)} mm`)] : []),
     stat('Parts', String(r.print.length)),
     stat('Filament', `≈ ${fmt(totalMass, 0)} g`),
   );
@@ -463,7 +471,8 @@ function renderParts() {
   }
   t.append(tb);
   const extra: HTMLElement[] = [];
-  if (r.usePipe) extra.push(el('p', {}, `Cut the pipe to ${fmt(r.pipeLength)} mm.`));
+  if (r.usePipe) extra.push(el('p', {}, `Cut the inlet pipe to ${fmt(r.pipeLength)} mm.`));
+  if (r.jointLength > 0) extra.push(el('p', {}, `Cut the joining pipe to ${fmt(r.jointLength)} mm.`));
   if (r.dowels?.count) extra.push(el('p', {}, `${r.dowels.count} dowels, ${r.dowels.diameter} mm, cut to ${fmt(r.dowels.length)} mm long.`));
   pane.append(el('p', { class: 'hint' }, 'Weights assume PLA at 100% infill; real prints weigh less.'), el('div', { class: 'scroll-x' }, t), ...extra);
 }
@@ -525,7 +534,7 @@ $('#file-load').addEventListener('change', async (e) => {
   const f = (e.target as HTMLInputElement).files?.[0];
   if (!f) return;
   try {
-    design = { ...DEFAULT_DESIGN, ...JSON.parse(await f.text()) };
+    design = migrate({ ...DEFAULT_DESIGN, ...JSON.parse(await f.text()) });
     viewer.resetFit();
     renderForm();
     persist();

@@ -82,9 +82,13 @@ export interface Design {
   handGap: number;
   thumbSpacing: number;
   meander: boolean;
-  meanderSide: 'right' | 'left';
+  /** 'alternate' is kept only so older saved designs still load. */
+  meanderSide: 'right' | 'left' | 'alternate';
+  alternateLoops: boolean;
   loopDirection: 'side' | 'back';
   bellFold: boolean;
+  midPipe: boolean;
+  midPipeLength: number;
   foldUpper: boolean;
   legLength: number;
   bendWall: number;
@@ -170,8 +174,11 @@ export const DEFAULT_DESIGN: Design = {
   thumbSpacing: 14,
   meander: true,
   meanderSide: 'right',
+  alternateLoops: false,
   loopDirection: 'side',
   bellFold: false,
+  midPipe: false,
+  midPipeLength: 80,
   foldUpper: true,
   legLength: 0,
   bendWall: 1.6,
