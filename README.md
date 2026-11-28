@@ -27,7 +27,14 @@ so the joint is smooth.
   bassoon reed on a printed bocal tip. Optional crumhorn-style wind cap.
 - *Latex membrane*: a chamber with a rim to stretch a piece of glove over, a
   clamp ring, a side blow tube, and either a printed nozzle or the inlet pipe
-  itself as an adjustable nozzle.
+  itself as an adjustable nozzle. The membrane can face up the instrument or
+  forwards, the same way as the finger holes. Facing forwards, the bore turns
+  behind the chamber into a forward nozzle, the blow tube points back towards
+  the player, and the mouthpiece prints in two glued halves with a pointed
+  (lemon) chamber so neither half needs supports. The blow tube can angle up
+  at 45° or run flat; facing up, a flat tube sits low enough to clear the
+  clamp ring and has a 45° keel and a pointed bore roof so it prints without
+  supports.
 
 **Inlet.** Sockets (or spigots) sized for UK/EU and US copper pipe, 21.5 mm
 overflow pipe, waste pipe, conduit and PVC, or a custom size. The pipe can be

@@ -1,9 +1,10 @@
 // Mouthpiece parts. Each is built standing on +z with its outlet end at z = 0,
 // which is also how it should be printed.
 
-import type { Manifold } from 'manifold-3d';
+import type { CrossSection, Manifold } from 'manifold-3d';
 import type { ManifoldToplevel } from './manifold';
 import type { Resolved } from '../model/derive';
+import { boreProfile } from './profile';
 
 export interface LocalPart {
   name: string;
@@ -13,6 +14,11 @@ export interface LocalPart {
   previewZ: number;
   flipForPreview?: boolean;
   note?: string;
+  /** Shown in the assembled view instead of `m` at previewZ, in mouthpiece
+   *  coordinates, for a part that does not sit along the axis. */
+  preview?: Manifold;
+  /** Printed as these pieces instead of `m`. */
+  printAs?: { name: string; m: Manifold; note?: string }[];
 }
 
 export interface MouthpieceBuild {
@@ -22,8 +28,10 @@ export interface MouthpieceBuild {
   pipeTopZ: number;
 }
 
-export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: (m: Manifold) => Manifold): MouthpieceBuild {
-  const { Manifold } = M;
+type Keep = <T extends { delete(): void }>(m: T) => T;
+
+export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: Keep): MouthpieceBuild {
+  const { Manifold, CrossSection } = M;
   const d = res.d;
   const mp = res.mouthpiece;
   const seg = Math.max(24, Math.round(d.resolution / 4) * 4);
@@ -185,8 +193,12 @@ export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: (m: Ma
     }
   } else if (mp.kind === 'membrane' && mp.membrane) {
     const mb = mp.membrane;
-    const wall = 2.4;
+    const wall = mb.wall;
     const chOuter = mb.innerR + wall;
+    if (mb.facing === 'front') {
+      parts.push(...frontMembrane(M, res, keep, { solids, cavities, z0, outletOuter, seg }));
+      return { parts, pipeTopZ };
+    }
     let zFloor: number;
     if (mb.pipeThrough) {
       // Sleeve that the pipe slides through; the pipe end is the nozzle.
@@ -209,20 +221,49 @@ export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: (m: Ma
     cavities.push(sub(cyl(2, chOuter + 5, chOuter + 5, zRim - 4.5), cyl(2, chOuter - 0.9, chOuter - 0.9, zRim - 4.5)));
     // Round over the rim so the latex is not cut.
     cavities.push(sub(cyl(0.8, chOuter + 3, chOuter + 3, zRim - 0.8), cyl(0.8, chOuter, chOuter - 0.8, zRim - 0.8)));
+    // The nozzle stands inside the chamber, so it is added after the chamber
+    // is cut out, and its bore cut after that.
+    const nozzle: Manifold[] = [];
+    let nozzleBore: Manifold | null = null;
     if (!mb.pipeThrough) {
       const nTop = zRim + mb.protrusion;
       const no = mb.nozzleR + mb.nozzleWall;
-      solids.push(cyl(nTop - 0.6 - zBase + 0.5, no, no, zBase - 0.5));
-      solids.push(cyl(0.6, no, no - 0.5, nTop - 0.6));
-      cavities.push(cyl(nTop + 2, mb.nozzleR, mb.nozzleR, -1));
+      nozzle.push(cyl(nTop - 0.6 - zBase + 0.5, no, no, zBase - 0.5));
+      nozzle.push(cyl(0.6, no, no - 0.5, nTop - 0.6));
+      nozzleBore = cyl(nTop + 2, mb.nozzleR, mb.nozzleR, -1);
+      cavities.push(nozzleBore);
     }
-    // Blow tube, 45° up and out.
-    const tubeLen = 30;
-    const tube = (r: number, len: number) =>
-      keep(keep(keep(Manifold.cylinder(len, r, r, seg)).rotate([0, 45, 0])).translate([mb.innerR - 2, 0, zBase + mb.chamberDepth * 0.35]));
-    solids.push(tube(5.5, tubeLen));
-    cavities.push(tube(3.8, tubeLen + 1));
-    const body = sub(union(solids), union(cavities));
+    const tubeR = 5.5;
+    const tubeBoreR = 3.8;
+    if (d.blowTube === 'flat') {
+      // Level blow tube, straight out of the side. It sits low, so its top
+      // clears the clamp ring and the rubber-band groove. To print standing
+      // without supports, the outside has a 45° keel underneath and the bore
+      // a pointed roof of the same area as the round bore.
+      const zc = Math.min(zBase + mb.chamberDepth * 0.35, zRim - 6.5 - tubeR);
+      const drop = boreProfile('drop', seg);
+      // Extrude along local z, then turn so local z -> +x, local x -> -z and
+      // local y -> y. A profile point (u, v) has v upwards in the world.
+      const tube = (r: number, pointDown: boolean, x0: number, len: number) => {
+        const pts = drop.pts.map(([u, v]) => [pointDown ? v * r : -v * r, u * r] as [number, number]);
+        const cs = new CrossSection([pts], 'NonZero');
+        const ex = keep(Manifold.extrude(cs, len));
+        cs.delete();
+        return keep(keep(ex.rotate([0, 90, 0])).translate([x0, 0, zc]));
+      };
+      const x0 = mb.innerR - 2;
+      solids.push(tube(tubeR, true, x0, 24));
+      cavities.push(tube(tubeBoreR * drop.scale, false, x0 - 1, 26));
+    } else {
+      // Blow tube, 45° up and out.
+      const tubeLen = 30;
+      const tube = (r: number, len: number) =>
+        keep(keep(keep(Manifold.cylinder(len, r, r, seg)).rotate([0, 45, 0])).translate([mb.innerR - 2, 0, zBase + mb.chamberDepth * 0.35]));
+      solids.push(tube(tubeR, tubeLen));
+      cavities.push(tube(tubeBoreR, tubeLen + 1));
+    }
+    let body = sub(union(solids), union(cavities));
+    if (nozzleBore) body = sub(union([body, ...nozzle]), nozzleBore);
     parts.push({
       name: 'Membrane mouthpiece',
       role: 'mouthpiece',
@@ -239,6 +280,116 @@ export function buildMouthpiece(M: ManifoldToplevel, res: Resolved, keep: (m: Ma
   }
 
   return { parts, pipeTopZ };
+}
+
+/**
+ * Membrane facing forwards (local -y, which the assembly turns to face the
+ * same way as the finger holes). The bore rises from the outlet behind the
+ * chamber, turns forwards and runs out through the back wall as the nozzle.
+ * The blow tube leaves the top of the chamber towards the player.
+ *
+ * A chamber lying on its side cannot print standing, so this mouthpiece is
+ * split down its middle (the plane x = 0, which holds every axis) and each
+ * half prints cut face down. The chamber has a lemon section, pointed at
+ * ±x, so neither half has a flat roof; the small bores stay round.
+ */
+function frontMembrane(
+  M: ManifoldToplevel,
+  res: Resolved,
+  keep: Keep,
+  o: { solids: Manifold[]; cavities: Manifold[]; z0: number; outletOuter: number; seg: number },
+): LocalPart[] {
+  const { Manifold, CrossSection } = M;
+  const d = res.d;
+  const mp = res.mouthpiece;
+  const mb = mp.membrane!;
+  const { solids, cavities, seg } = o;
+  const chOuter = mb.innerR + mb.wall;
+  const { zc, yRim, yBack } = mb;
+  const boreR = mb.nozzleR;
+  const no = mb.nozzleR + mb.nozzleWall;
+  const yTip = yRim - mb.protrusion;
+
+  // Lemon section in the x-z plane, pointed at ±x.
+  const lemon = boreProfile('lemon', seg * 2).pts;
+  const lemonCs = (r: number) => keep(new CrossSection([lemon.map(([u, v]) => [v * r, u * r] as [number, number])], 'NonZero'));
+  const circleCs = (r: number) => keep(CrossSection.circle(r, seg));
+  // Prism along y from y0 to y1, centred on (x = 0, z = zc): extrude runs
+  // along +z; rotating about x by 90° sends it along -y.
+  const prismY = (cs: CrossSection, y0: number, y1: number) =>
+    keep(keep(keep(Manifold.extrude(cs, y1 - y0)).rotate([90, 0, 0])).translate([0, y1, zc]));
+  const ball = (r: number) => keep(keep(Manifold.sphere(r, seg)).translate([0, 0, zc]));
+
+  // ---- Riser and elbow, behind the chamber.
+  const rr = Math.max(o.outletOuter, boreR + mb.wall);
+  solids.push(keep(keep(Manifold.cylinder(zc - o.z0 + 0.5, rr, rr, seg)).translate([0, 0, o.z0 - 0.5])));
+  solids.push(ball(rr));
+  solids.push(prismY(circleCs(rr), yBack, 0));
+  cavities.push(keep(keep(Manifold.cylinder(zc + 1, boreR, boreR, seg)).translate([0, 0, -1])));
+  cavities.push(ball(boreR));
+  cavities.push(prismY(circleCs(boreR), yTip - 1, 0));
+
+  // ---- Chamber, rim and nozzle.
+  solids.push(prismY(lemonCs(chOuter), yRim, yBack + mb.base));
+  cavities.push(prismY(lemonCs(mb.innerR), yRim - 1, yBack));
+  // Round over the rim so the latex is not cut.
+  const bevel = keep(Manifold.hull([prismY(lemonCs(chOuter), yRim + 0.8, yRim + 0.81), prismY(lemonCs(chOuter - 0.8), yRim - 0.01, yRim)]));
+  // Only the outer edge: the nozzle tip stands proud of the rim inside it.
+  cavities.push(keep(keep(prismY(lemonCs(chOuter + 3), yRim - 1, yRim + 0.8).subtract(bevel)).subtract(prismY(lemonCs(chOuter - 0.8), yRim - 1.1, yRim + 0.9))));
+  // Rubber-band groove behind the rim.
+  cavities.push(keep(prismY(lemonCs(chOuter + 5), yRim + 2.5, yRim + 4.5).subtract(prismY(lemonCs(chOuter - 0.9), yRim + 2.4, yRim + 4.6))));
+  // The nozzle stands inside the chamber: added after the chamber is cut.
+  const nozzle = [
+    prismY(circleCs(no), yTip + 0.6, yBack + 0.5),
+    keep(keep(keep(Manifold.cylinder(0.6, no, no - 0.5, seg)).rotate([90, 0, 0])).translate([0, yTip + 0.6, zc])),
+  ];
+  const nozzleBore = prismY(circleCs(boreR), yTip - 1, 0);
+
+  // ---- Blow tube, from the top of the chamber back towards the player:
+  // rising at 45°, or level. It starts above the nozzle and far enough back
+  // to clear the clamp ring.
+  const tubeR = 5.5;
+  const tubeBoreR = 3.8;
+  const angled = d.blowTube !== 'flat';
+  const sy = yRim + mb.chamberDepth * 0.6;
+  const sz = zc + Math.max(mb.innerR * 0.5, no + 3.5);
+  const len = angled ? 30 : rr + 15 - sy;
+  const tube = (r: number, l: number, back: number) => {
+    const t = keep(keep(Manifold.cylinder(l, r, r, seg)).rotate([angled ? -45 : -90, 0, 0]));
+    const k = angled ? Math.SQRT1_2 : 1;
+    return keep(t.translate([0, sy - back * (angled ? Math.SQRT1_2 : 1), sz - back * (angled ? k : 0)]));
+  };
+  solids.push(tube(tubeR, len, 0));
+  cavities.push(tube(tubeBoreR, len + 2, 1));
+
+  let body = keep(keep(Manifold.union(solids)).subtract(keep(Manifold.union(cavities))));
+  body = keep(keep(Manifold.union([body, ...nozzle])).subtract(nozzleBore));
+  // Halves: +x and -x, each turned cut face down.
+  const halfA = keep(keep(body.trimByPlane([1, 0, 0], 0)).rotate([0, -90, 0]));
+  const halfB = keep(keep(body.trimByPlane([-1, 0, 0], 0)).rotate([0, 90, 0]));
+  const glue = 'Glue the halves with the rim and outlet lined up, and sand the rim smooth across the joint.';
+  const ringCs = keep(keep(lemonCs(chOuter).offset(0.45 + 2.4, 'Miter', 4)).subtract(keep(lemonCs(chOuter).offset(0.45, 'Miter', 4))));
+  return [
+    {
+      name: 'Membrane mouthpiece',
+      role: 'mouthpiece',
+      m: body,
+      previewZ: 0,
+      note: `Membrane faces forwards. Stretch a piece of latex glove over the rim so it presses on the nozzle (${mb.protrusion} mm proud). Clamp with the ring or a rubber band.`,
+      printAs: [
+        { name: 'Membrane mouthpiece half 1/2', m: halfA, note: `Print cut face down. ${glue}` },
+        { name: 'Membrane mouthpiece half 2/2', m: halfB, note: `Print cut face down. ${glue}` },
+      ],
+    },
+    {
+      name: 'Membrane clamp ring',
+      role: 'accessory',
+      m: keep(Manifold.extrude(ringCs, 7)),
+      previewZ: 0,
+      preview: prismY(ringCs, yRim - 1, yRim + 6),
+      note: 'Print flat. Press over the latex and rim.',
+    },
+  ];
 }
 
 /** Extrude a polygon given in (z, y) across x, centred on x = 0. */
