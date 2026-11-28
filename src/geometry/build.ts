@@ -105,10 +105,11 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     if (lyingOnePiece && d.boreShape !== 'teardrop') warnings.push('A folded body printed in one piece lies flat, so the bore uses a pointed (teardrop) top to avoid supports.');
     const bp = boreProfile(shape, n);
     const round = boreProfile('round', n);
-    // The outside follows the bore's shape so the wall stays even, with the
-    // ridge blunted to a narrow flat: a knife edge upsets the booleans.
-    const outerProf: [number, number][] = bp.pts.map(([u, v]) => [u, Math.max(-1.32, Math.min(1.32, v))]);
-    const roP = (s: number) => r(s) * bp.scale + wall;
+    // The outside is round, sized so the wall over a pointed bore roof is
+    // still a full wall thick. (A pointed outside would print no better and
+    // its knife edge upsets the booleans.)
+    const outerProf = round.pts;
+    const roP = (s: number) => (shape === 'round' ? r(s) : r(s) * bp.scale * Math.SQRT2) + wall;
     const conical = res.body.type === 'conical';
     const bellStart = res.body.bellLength > 0 ? L - res.body.bellLength : L;
 
@@ -281,28 +282,27 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     } else if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') {
       outerParts.push(blocks(d.bodyStyle === 'rounded'));
     } else {
-      // All pieces take their cross-sections from one shared list and meet
-      // exactly on a shared section, without overlapping. Touching faces
-      // with identical vertices union exactly; overlapping pieces whose
-      // surfaces nearly coincide would leave slivers.
+      // All pieces take their cross-sections from one shared list, and each
+      // reaches one section into its neighbours. Where two pieces overlap
+      // their surfaces are then identical, which the union handles exactly;
+      // slightly different surfaces would leave slivers.
       const shared = sampleS(0, L);
       path.pieces.forEach((pc, i) => {
         const a = path.starts[i];
         const b = i + 1 < path.pieces.length ? path.starts[i + 1] : L;
-        const lo = Math.max(0, shared.findIndex((s) => s >= a - 1e-6));
+        let lo = shared.findIndex((s) => s >= a - 1e-6);
         let hi = shared.length - 1;
         while (hi > 0 && shared[hi] > b + 1e-6) hi--;
+        lo = Math.max(0, lo - 1);
+        hi = Math.min(shared.length - 1, hi + 1);
         const ss = shared.slice(lo, hi + 1);
-        if (ss.length < 2) return;
         let rmax = 0;
         for (const s of ss) rmax = Math.max(rmax, roP(s));
         if (pc.kind === 'arc' && pc.R < rmax * 1.05) {
-          // Tight bend: a sweep would fold through itself on the inside, so
-          // build it from short convex segments. Their inner sides overlap
-          // and fill the inside of the bend.
-          for (let k = 0; k + 1 < ss.length; k++) {
-            outerParts.push(hullOf([...ringPts(ss[k], roP(ss[k]), outerProf), ...ringPts(ss[k + 1], roP(ss[k + 1]), outerProf)]));
-          }
+          // Tight bend: its convex hull is solid and fills the inside of the U.
+          const pts: V3[] = [];
+          for (const s of ss) pts.push(...ringPts(s, roP(s), outerProf));
+          outerParts.push(hullOf(pts));
         } else {
           outerParts.push(sweep(ss, roP, outerProf));
         }
@@ -321,7 +321,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     const cavities: Manifold[] = [];
     if (sock.kind === 'socket') {
       // Wide enough to cover the pointed top of the bore where it starts.
-      const apex = shape === 'round' ? 0 : roP(0) * 1.32 + 0.5;
+      const apex = shape === 'round' ? 0 : roP(0) + 0.5;
       const sr = Math.max(sock.r + Math.max(2.4, wall * 0.8), apex);
       const start: V3 = [f0.p[0] + back[0] * sock.depth, f0.p[1] + back[1] * sock.depth, 0];
       outerParts.push(cylAlong(start, f0.t, sock.depth + 0.01, sr));
@@ -390,10 +390,9 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       const outOfPlane = Math.abs(h.dir[2]) > 0.5;
       let surf: number;
       if (outOfPlane) {
-        const pointed = shape === 'lemon' || (shape === 'drop' && h.dir[2] > 0);
-        surf = isFlatStyle(d.bodyStyle) ? slabHalf : pointed ? roP(h.s) * 1.32 : roP(h.s);
+        surf = isFlatStyle(d.bodyStyle) ? slabHalf : roP(h.s);
       } else {
-        surf = d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded' ? spineMargin : d.bodyStyle === 'slab' ? Math.max(ro(h.s), roP(h.s)) : roP(h.s);
+        surf = d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded' ? spineMargin : d.bodyStyle === 'slab' ? ro(h.s) : roP(h.s);
       }
       const c = keep(Manifold.cylinder(surf + 3, rad, rad, n));
       const cone = d.holeChamfer > 0 ? keep(keep(Manifold.cylinder(d.holeChamfer + 2, rad, rad + d.holeChamfer + 2, n)).translate([0, 0, surf - d.holeChamfer])) : null;
@@ -427,32 +426,6 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     }
     const cav = union(cavities);
     const solid = keep(outer.subtract(cav));
-    if ((globalThis as any).__dbg) {
-      const bx = (m: Manifold) => { const b = m.boundingBox(); return b.min.map((v: number) => v.toFixed(0)).join(',') + ' .. ' + b.max.map((v: number) => v.toFixed(0)).join(','); };
-      console.log('outer genus', outer.genus(), 'parts', outer.decompose().length);
-      let acc = outer;
-      cavities.forEach((c, i) => { const g0 = acc.genus(); acc = keep(acc.subtract(c)); const dg = acc.genus() - g0; if (dg !== 1 || i < 3) console.log('cavity', i, 'dgenus', dg, bx(c)); });
-      console.log('sequential genus', acc.genus(), 'solid genus', solid.genus(), 'solid parts', solid.decompose().map((c) => c.volume().toFixed(1)).join(' '), 'cav genus', cav.genus(), 'cav parts', cav.decompose().length);
-      {
-        const mm = solid.getMesh();
-        const np = mm.numProp; const nv = mm.vertProperties.length / np; const pos = new Float32Array(nv * 3);
-        for (let i = 0; i < nv; i++) for (let k = 0; k < 3; k++) pos[i * 3 + k] = mm.vertProperties[i * np + k];
-        const re = keep(new Manifold(new Mesh({ numProp: 3, vertProperties: pos, triVerts: new Uint32Array(mm.triVerts) })));
-        console.log('reimported genus', re.genus(), 'tris', solid.numTri(), re.numTri());
-        // Find thin places: tiny triangles
-        let tiny = 0; const v = mm.vertProperties; const t = mm.triVerts; const where: string[] = [];
-        for (let i = 0; i < t.length; i += 3) {
-          const a = t[i] * np, b = t[i + 1] * np, c = t[i + 2] * np;
-          const ux = v[b] - v[a], uy = v[b + 1] - v[a + 1], uz = v[b + 2] - v[a + 2];
-          const wx = v[c] - v[a], wy = v[c + 1] - v[a + 1], wz = v[c + 2] - v[a + 2];
-          const area = Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) / 2;
-          if (area < 1e-6) { tiny++; if (where.length < 8) where.push(`(${v[a].toFixed(2)},${v[a + 1].toFixed(2)},${v[a + 2].toFixed(2)})`); }
-        }
-        console.log('tiny tris', tiny, where.join(' '));
-      }
-      const out = keep(cav.subtract(outer));
-      for (const c of out.decompose()) console.log('cav outside', c.volume().toFixed(1), bx(c));
-    }
     if (solid.status() !== 'NoError') warnings.push(`Geometry status: ${solid.status()}`);
     const bb = solid.boundingBox();
     const bounds = { min: [bb.min[0], bb.min[1], bb.min[2]] as V3, max: [bb.max[0], bb.max[1], bb.max[2]] as V3 };
