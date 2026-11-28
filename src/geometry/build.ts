@@ -7,7 +7,7 @@ import type { SolveResult } from '../acoustics/solver';
 import type { Layout } from './layout';
 import type { Path } from './path';
 import { buildMouthpiece } from './mouthpiece';
-import { isFlatStyle } from '../model/design';
+import { isFlatStyle, loopsBehind } from '../model/design';
 
 type V3 = [number, number, number];
 
@@ -30,6 +30,15 @@ export interface BuildResult {
   cuts: number;
   bounds: { min: V3; max: V3 };
   plates: [number, number][];
+  /** Only when asked for: checks that the air path is open. */
+  verify?: Verification;
+}
+
+export interface Verification {
+  holes: { number: number; reachesBore: boolean; breaksOut: boolean }[];
+  bellOpen: boolean;
+  /** Places, other than the bell and inlet, where the bore breaks through the wall. */
+  strayOpenings: number;
 }
 
 const COLORS = {
@@ -41,6 +50,14 @@ const COLORS = {
   test: '#7fa88b',
   pipe: '#b87333',
 };
+
+function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const l2 = vx * vx + vy * vy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2)) : 0;
+  return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
+}
 
 function signedArea(pl: readonly (readonly [number, number] | { x: number; y: number })[]): number {
   let a = 0;
@@ -75,7 +92,7 @@ function boreProfile(shape: 'round' | 'lemon' | 'drop', n: number): { pts: [numb
   return { pts, scale: 1 / Math.sqrt(1 + (caps * extra) / Math.PI) };
 }
 
-export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: SolveResult, lay: Layout): Promise<BuildResult> {
+export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: SolveResult, lay: Layout, opts: { verify?: boolean } = {}): Promise<BuildResult> {
   const { Manifold, Mesh, CrossSection } = M;
   const d = res.d;
   const warnings: string[] = [];
@@ -97,10 +114,11 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     if (lyingOnePiece && d.boreShape !== 'teardrop') warnings.push('A folded body printed in one piece lies flat, so the bore uses a pointed (teardrop) top to avoid supports.');
     const bp = boreProfile(shape, n);
     const round = boreProfile('round', n);
-    // The outside follows the bore's shape so the wall stays even, with the
-    // ridge blunted to a narrow flat: a knife edge upsets the booleans.
-    const outerProf: [number, number][] = bp.pts.map(([u, v]) => [u, Math.max(-1.32, Math.min(1.32, v))]);
-    const roP = (s: number) => r(s) * bp.scale + wall;
+    // The outside is round, sized so the wall over a pointed bore roof is
+    // still a full wall thick. (A pointed outside would print no better and
+    // its knife edge upsets the booleans.)
+    const outerProf = round.pts;
+    const roP = (s: number) => (shape === 'round' ? r(s) : r(s) * bp.scale * Math.SQRT2) + wall;
     const conical = res.body.type === 'conical';
     const bellStart = res.body.bellLength > 0 ? L - res.body.bellLength : L;
 
@@ -139,10 +157,10 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       return prof.map(([u, v]) => [f.p[0] + rad * u * f.nrm[0], f.p[1] + rad * u * f.nrm[1], rad * v]);
     };
 
-    const sweep = (ss: number[], rad: (s: number) => number, prof: [number, number][]): Manifold => {
+    const sweep = (ss: number[], rad: (s: number) => number, prof: [number, number][], profAt?: (s: number) => [number, number][]): Manifold => {
       const m = prof.length;
       const verts: number[] = [];
-      for (const s of ss) for (const q of ringPts(s, rad(s), prof)) verts.push(q[0], q[1], q[2]);
+      for (const s of ss) for (const q of ringPts(s, rad(s), profAt ? profAt(s) : prof)) verts.push(q[0], q[1], q[2]);
       const c0 = frame(ss[0]).p;
       const c1 = frame(ss[ss.length - 1]).p;
       const i0 = ss.length * m;
@@ -177,6 +195,33 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     };
 
     /**
+     * Channel in front of the bell mouth, as wide as the bore there and
+     * running out to the nearest other part of the instrument. Fillets,
+     * gap plugs and flat bodies are kept out of it so the bell stays open,
+     * even when it opens into a pocket between other parts.
+     */
+    const mouthChannel = (): ReturnType<typeof CrossSection.circle> => {
+      const e = frame(L);
+      const t: [number, number] = [e.t[0], e.t[1]];
+      const nn: [number, number] = [-t[1], t[0]];
+      const rb = r(L) * (shape === 'round' ? 1 : bp.scale) + 0.3;
+      let len = 2 * roP(L) + 20;
+      for (const sq of path.samples(3, Math.PI / 36)) {
+        const q = path.at(sq).p;
+        const dx = q[0] - e.p[0];
+        const dy = q[1] - e.p[1];
+        const ahead = dx * t[0] + dy * t[1];
+        const side = Math.abs(dx * nn[0] + dy * nn[1]);
+        if (ahead > 0 && side < rb + roP(sq)) len = Math.min(len, ahead - roP(sq) - 0.5);
+      }
+      len = Math.max(len, 1);
+      const pt = (a: number, b: number): [number, number] => [e.p[0] + nn[0] * a + t[0] * b, e.p[1] + nn[1] * a + t[1] * b];
+      let poly = [pt(-rb, -0.5), pt(rb, -0.5), pt(rb, len), pt(-rb, len)];
+      if (signedArea(poly) < 0) poly = poly.reverse();
+      return keep(new CrossSection([poly]));
+    };
+
+    /**
      * Flat body whose outline is one rectangle per feature of the air path
      * (the finger line, each loop, the folded legs, the upturned bell).
      * The ends stay flush with the inlet socket mouth and the bell opening.
@@ -184,20 +229,25 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
      * inside corners.
      */
     const blocks = (rounded: boolean): Manifold => {
-      type Box = { x0: number; y0: number; x1: number; y1: number; m: number; start: boolean; end: boolean };
+      type Box = { x0: number; y0: number; x1: number; y1: number; cy0: number; cy1: number; m: number; start: boolean; end: boolean };
       const groups = new Map<number, Box>();
       path.pieces.forEach((pc, i) => {
         const s0 = path.starts[i];
         const s1 = i + 1 < path.pieces.length ? path.starts[i + 1] : L;
         const g = pc.group ?? 0;
-        const b = groups.get(g) ?? { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, m: 0, start: false, end: false };
+        const b = groups.get(g) ?? { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, cy0: Infinity, cy1: -Infinity, m: 0, start: false, end: false };
+        // Bounds of the tube itself, using the local radius at each point,
+        // so a flared bell does not widen the block along its whole length.
         for (const s of [s0, ...sampleS(s0, s1), s1]) {
           const p = path.at(s).p;
-          b.x0 = Math.min(b.x0, p[0]);
-          b.x1 = Math.max(b.x1, p[0]);
-          b.y0 = Math.min(b.y0, p[1]);
-          b.y1 = Math.max(b.y1, p[1]);
-          b.m = Math.max(b.m, roP(s));
+          const m = roP(s);
+          b.x0 = Math.min(b.x0, p[0] - m);
+          b.x1 = Math.max(b.x1, p[0] + m);
+          b.y0 = Math.min(b.y0, p[1] - m);
+          b.y1 = Math.max(b.y1, p[1] + m);
+          b.m = Math.max(b.m, m);
+          b.cy0 = Math.min(b.cy0, p[1]);
+          b.cy1 = Math.max(b.cy1, p[1]);
         }
         if (i === 0) b.start = true;
         if (i === path.pieces.length - 1) b.end = true;
@@ -217,8 +267,12 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
         else if (dir[0] < -0.9) b.x0 = at[0];
       };
       const rects: { x0: number; y0: number; x1: number; y1: number }[] = [];
-      for (const b of groups.values()) {
-        const r0 = { x0: b.x0 - b.m, y0: b.y0 - b.m, x1: b.x1 + b.m, y1: b.y1 + b.m };
+      for (const [g, b] of groups) {
+        const r0 = { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 };
+        // The bell block starts where the bell section starts; the crossover
+        // block above the finger section stops at its top.
+        if (g === 3) r0.y1 = b.cy1;
+        if (g === 4) r0.y0 = b.cy0;
         if (b.start) clampTo(r0, [-fs.t[0], -fs.t[1], 0], mouth);
         if (b.end) clampTo(r0, fe.t, [fe.p[0], fe.p[1]]);
         rects.push(r0);
@@ -260,6 +314,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
         const back0: V3 = [-fs.t[0], -fs.t[1], 0];
         outline = keep(CrossSection.union([outline, cap(mouth, back0, Math.max(sr, roP(0))), cap([fe.p[0], fe.p[1]], fe.t, roP(L))]));
       }
+      outline = keep(outline.subtract(mouthChannel()));
       const half = slabHalfFor();
       return keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
     };
@@ -267,15 +322,24 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     // ---------------- Outer body
     const outerParts: Manifold[] = [];
     if (d.bodyStyle === 'slab') {
-      outerParts.push(slab(path, ro, slabHalfFor()));
+      outerParts.push(slab(path, ro, slabHalfFor(), mouthChannel()));
     } else if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') {
       outerParts.push(blocks(d.bodyStyle === 'rounded'));
     } else {
+      // All pieces take their cross-sections from one shared list, and each
+      // reaches one section into its neighbours. Where two pieces overlap
+      // their surfaces are then identical, which the union handles exactly;
+      // slightly different surfaces would leave slivers.
+      const shared = sampleS(0, L);
       path.pieces.forEach((pc, i) => {
-        // Overlap neighbours slightly so no two pieces meet face to face.
-        const s0 = Math.max(0, path.starts[i] - 0.4);
-        const s1 = Math.min(L, (i + 1 < path.pieces.length ? path.starts[i + 1] : L) + 0.4);
-        const ss = sampleS(s0, s1);
+        const a = path.starts[i];
+        const b = i + 1 < path.pieces.length ? path.starts[i + 1] : L;
+        let lo = shared.findIndex((s) => s >= a - 1e-6);
+        let hi = shared.length - 1;
+        while (hi > 0 && shared[hi] > b + 1e-6) hi--;
+        lo = Math.max(0, lo - 1);
+        hi = Math.min(shared.length - 1, hi + 1);
+        const ss = shared.slice(lo, hi + 1);
         let rmax = 0;
         for (const s of ss) rmax = Math.max(rmax, roP(s));
         if (pc.kind === 'arc' && pc.R < rmax * 1.05) {
@@ -290,7 +354,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       if (d.bodyStyle === 'web' && (lay.legs > 0 || lay.loops > 0)) {
         let rmin = Infinity;
         for (const s of sampleS(0, L)) rmin = Math.min(rmin, r(s));
-        outerParts.push(slab(path, ro, (rmin + wall) * 0.7));
+        outerParts.push(slab(path, ro, (rmin + wall) * 0.7, mouthChannel()));
       }
     }
 
@@ -299,16 +363,20 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     const back: V3 = [-f0.t[0], -f0.t[1], 0];
     const sock = res.socket;
     const cavities: Manifold[] = [];
+    let socketCavity: Manifold | null = null;
     if (sock.kind === 'socket') {
-      const sr = sock.r + Math.max(2.4, wall * 0.8);
+      // Wide enough to cover the pointed top of the bore where it starts.
+      const apex = shape === 'round' ? 0 : roP(0) + 0.5;
+      const sr = Math.max(sock.r + Math.max(2.4, wall * 0.8), apex);
       const start: V3 = [f0.p[0] + back[0] * sock.depth, f0.p[1] + back[1] * sock.depth, 0];
       outerParts.push(cylAlong(start, f0.t, sock.depth + 0.01, sr));
-      if (sr > ro(0)) {
+      if (sr > roP(0)) {
         // 45° shoulder down to the body
-        const len = sr - ro(0);
-        outerParts.push(hullOf([...ringPts(0, sr, round.pts), ...ringPts(len, ro(len), round.pts)]));
+        const len = sr - roP(0);
+        outerParts.push(hullOf([...ringPts(0, sr, round.pts), ...ringPts(len, roP(len), outerProf)]));
       }
-      cavities.push(cylAlong([start[0] + back[0], start[1] + back[1], 0], f0.t, sock.depth + 1, sock.r));
+      socketCavity = cylAlong([start[0] + back[0], start[1] + back[1], 0], f0.t, sock.depth + 1, sock.r);
+      cavities.push(socketCavity);
       // Lead-in chamfer
       cavities.push(cylAlong([start[0] + back[0], start[1] + back[1], 0], f0.t, 1.8, sock.r + 0.8, sock.r));
     } else {
@@ -324,7 +392,13 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       const boreSamples = path.samples(2, Math.PI / 36).map((s) => ({ p: frame(s).p, r: r(s) }));
       const ok = (q: V3) => {
         for (const b of boreSamples) if (Math.hypot(q[0] - b.p[0], q[1] - b.p[1]) < b.r + dowelR + 0.8) return false;
-        for (const h of lay.holes) if (Math.hypot(q[0] - h.pos[0], q[1] - h.pos[1]) < h.diameter / 2 + dowelR + 2) return false;
+        for (const h of lay.holes) {
+          // Holes drilled in the bore plane run along a line, not a point.
+          const len = Math.abs(h.dir[2]) > 0.5 ? 0 : res.maxBoreR * 2 + wall + 20;
+          const ex = h.pos[0] + h.dir[0] * len;
+          const ey = h.pos[1] + h.dir[1] * len;
+          if (distToSegment(q[0], q[1], h.pos[0], h.pos[1], ex, ey) < h.diameter / 2 + dowelR + 2) return false;
+        }
         for (const o of dowels) if (Math.hypot(q[0] - o[0], q[1] - o[1]) < 10) return false;
         return true;
       };
@@ -346,18 +420,40 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     // ---------------- Cavities: bore, holes
     const boreSS = sampleS(0, L);
     const ext0 = sock.kind === 'socket' ? -0.6 : -(sock.depth + 1);
-    const boreR = (s: number) => r(s) * bp.scale;
-    cavities.push(sweep([ext0, ...boreSS, L + 1], boreR, bp.pts));
+    // Inside the inlet fitting (s < 0) the bore is round: the fitting is.
+    const boreR = (s: number) => (s < 0 ? r(0) : r(s) * bp.scale);
+    const boreCavity = sweep([ext0, ...boreSS, L + 1], boreR, bp.pts, (s) => (s < 0 ? round.pts : bp.pts));
+    cavities.push(boreCavity);
+    const holeCavities: Manifold[] = [];
     const slabHalf = slabHalfFor();
+    // Front edge of the finger section, for holes drilled in the bore plane.
+    let spineMargin = 0;
+    path.pieces.forEach((pc, i) => {
+      if ((pc.group ?? 0) !== 0) return;
+      const s1 = i + 1 < path.pieces.length ? path.starts[i + 1] : L;
+      for (const s of sampleS(path.starts[i], s1)) spineMargin = Math.max(spineMargin, roP(s));
+    });
     for (const h of lay.holes) {
       const rad = Math.max(0.5, (h.diameter - d.pilotUndersize) / 2);
-      const pointed = shape === 'lemon' || (shape === 'drop' && h.face > 0);
-      const surf = isFlatStyle(d.bodyStyle) ? slabHalf : pointed ? roP(h.s) * 1.32 : roP(h.s);
+      const outOfPlane = Math.abs(h.dir[2]) > 0.5;
+      let surf: number;
+      if (outOfPlane) {
+        surf = isFlatStyle(d.bodyStyle) ? slabHalf : roP(h.s);
+      } else {
+        surf = d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded' ? spineMargin : d.bodyStyle === 'slab' ? ro(h.s) : roP(h.s);
+      }
       const c = keep(Manifold.cylinder(surf + 3, rad, rad, n));
       const cone = d.holeChamfer > 0 ? keep(keep(Manifold.cylinder(d.holeChamfer + 2, rad, rad + d.holeChamfer + 2, n)).translate([0, 0, surf - d.holeChamfer])) : null;
       let hm = cone ? union([c, cone]) : c;
-      if (h.face < 0) hm = keep(hm.rotate([180, 0, 0]));
-      cavities.push(keep(hm.translate([h.pos[0], h.pos[1], 0])));
+      // Built along +z; turn it to the drilling direction.
+      if (outOfPlane) {
+        if (h.dir[2] < 0) hm = keep(hm.rotate([180, 0, 0]));
+      } else {
+        hm = keep(hm.rotate([0, h.dir[0] < 0 ? -90 : 90, 0]));
+      }
+      const placed = keep(hm.translate([h.pos[0], h.pos[1], 0]));
+      holeCavities.push(placed);
+      cavities.push(placed);
     }
     if (dowels.length) {
       for (const q of dowels) cavities.push(keep(keep(Manifold.cylinder(2 * d.dowelDepth, dowelR, dowelR, 16)).translate([q[0], q[1], -d.dowelDepth])));
@@ -373,16 +469,47 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
         let rmin = Infinity;
         for (const s of sampleS(0, L)) rmin = Math.min(rmin, r(s));
         const T = isFlatStyle(d.bodyStyle) ? 2 * slabHalfFor() : 2 * (rmin + wall) * 0.8;
-        const plug = keep(new CrossSection(holes.map((pl) => pl.slice().reverse())));
+        const plug = keep(keep(new CrossSection(holes.map((pl) => pl.slice().reverse()))).subtract(mouthChannel()));
         const plugM = keep(keep(Manifold.extrude(keep(plug.offset(0.3)), T)).translate([0, 0, -T / 2]));
         outer = keep(Manifold.union(outer, plugM));
       }
     }
     const cav = union(cavities);
     const solid = keep(outer.subtract(cav));
+    let verify: Verification | undefined;
+    if (opts.verify) {
+      // The bore must break out of the body only at the inlet and the bell,
+      // and every tone hole must meet the bore and break out of the body.
+      const bore = boreCavity;
+      const fEnd = frame(L).p;
+      const near = (m: Manifold, p: V3, d: number) => {
+        const b = m.boundingBox();
+        const cx = Math.max(b.min[0], Math.min(p[0], b.max[0]));
+        const cy = Math.max(b.min[1], Math.min(p[1], b.max[1]));
+        return Math.hypot(cx - p[0], cy - p[1]) < d;
+      };
+      let outside = keep(bore.subtract(outer));
+      if (socketCavity) outside = keep(outside.subtract(socketCavity));
+      const pieces = outside.decompose().map((c) => keep(c)).filter((c) => c.volume() > 0.5);
+      const rEnd = r(L) * 2 + 5;
+      const bellOpen = pieces.some((c) => near(c, fEnd, rEnd));
+      const strayOpenings = pieces.filter((c) => !near(c, fEnd, rEnd) && !near(c, f0.p, sock.depth + r(0) * 2 + 5)).length;
+      verify = {
+        holes: lay.holes.map((h, i) => ({
+          number: h.number,
+          reachesBore: keep(holeCavities[i].intersect(bore)).volume() > 0.5,
+          breaksOut: keep(holeCavities[i].subtract(outer)).volume() > 0.5,
+        })),
+        bellOpen,
+        strayOpenings,
+      };
+    }
     if (solid.status() !== 'NoError') warnings.push(`Geometry status: ${solid.status()}`);
     const bb = solid.boundingBox();
     const bounds = { min: [bb.min[0], bb.min[1], bb.min[2]] as V3, max: [bb.max[0], bb.max[1], bb.max[2]] as V3 };
+
+    // With the loops behind, turn the preview so the finger holes face the viewer.
+    const pv = (m: Manifold): Manifold => (loopsBehind(d) ? keep(m.rotate([0, 90, 0])) : m);
 
     // ---------------- Split into halves and cut to fit the bed
     const preview: PartMesh[] = [];
@@ -431,8 +558,8 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     if (split) {
       const front = keep(solid.trimByPlane([0, 0, 1], 0));
       const backH = keep(solid.trimByPlane([0, 0, -1], 0));
-      preview.push(toMesh(front, 'Body front half', 'body', COLORS.front));
-      preview.push(toMesh(backH, 'Body back half', 'body', COLORS.back));
+      preview.push(toMesh(pv(front), 'Body front half', 'body', COLORS.front));
+      preview.push(toMesh(pv(backH), 'Body back half', 'body', COLORS.back));
       const w = bb.max[0] - bb.min[0];
       const h = bb.max[1] - bb.min[1];
       // Try both ways round on the bed and keep the one with fewer pieces.
@@ -459,7 +586,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
         print.push(toMesh(flipped, `Back half${backs.length > 1 ? ` ${i + 1}/${backs.length}` : ''}`, 'body', COLORS.back, 'Print cut face down.'));
       });
     } else {
-      preview.push(toMesh(solid, 'Body', 'body', COLORS.body));
+      preview.push(toMesh(pv(solid), 'Body', 'body', COLORS.body));
       if (lyingOnePiece) {
         print.push(toMesh(solid, 'Body', 'body', COLORS.body, 'Print lying flat on its back with supports under the curved underside only.'));
         if (Math.max(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]) > bedMax) warnings.push('The one-piece folded body is larger than the bed. Use split halves to cut it.');
@@ -514,13 +641,13 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       return keep(keep(keep(m.rotate([-90, 0, 0])).rotate([0, 0, phi])).translate(o));
     };
     for (const p of mpb.parts) {
-      preview.push(toMesh(place(p.m, p.previewZ), p.name, p.role, p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory));
+      preview.push(toMesh(pv(place(p.m, p.previewZ)), p.name, p.role, p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory));
       print.push(toMesh(p.m, p.name, p.role, p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory, p.note));
     }
     if (pipeLen > 0) {
       const pr = res.pipe.od / 2;
       const pipeM = keep(keep(Manifold.cylinder(pipeLen, pr, pr, n)).subtract(keep(keep(Manifold.cylinder(pipeLen + 2, res.pipe.id_ / 2, res.pipe.id_ / 2, n)).translate([0, 0, -1]))));
-      preview.push(toMesh(place(pipeM, -originOffset), `${res.pipe.label} pipe`, 'pipe', COLORS.pipe));
+      preview.push(toMesh(pv(place(pipeM, -originOffset)), `${res.pipe.label} pipe`, 'pipe', COLORS.pipe));
     }
 
     // Fit-test coupons
@@ -547,6 +674,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       cuts,
       bounds,
       plates,
+      verify,
     };
   } finally {
     for (const g of garbage) {
@@ -568,7 +696,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
    * notches where one run of tube meets the next become smooth curves, and
    * the bell end is cut square so the bore opens.
    */
-  function slab(path: Path, rad: (s: number) => number, half: number): Manifold {
+  function slab(path: Path, rad: (s: number) => number, half: number, keepOut?: ReturnType<typeof CrossSection.circle>): Manifold {
     const ss = path.samples(4, Math.PI / 24);
     const segs = 48;
     const circles = ss.map((s) => {
@@ -592,6 +720,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     let cut = [pt(-w, 0), pt(w, 0), pt(w, len), pt(-w, len)];
     if (signedArea(cut) < 0) cut = cut.reverse();
     outline = keep(outline.subtract(keep(new CrossSection([cut]))));
+    if (keepOut) outline = keep(outline.subtract(keepOut));
     return keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
   }
 

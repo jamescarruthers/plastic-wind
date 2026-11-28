@@ -1,6 +1,6 @@
 // Turns the user's Design into the numbers the solver and geometry need.
 
-import { isFlatStyle, type Design } from './design';
+import { isFlatStyle, loopsBehind, type Design } from './design';
 import { getPipe, type PipeSize } from './pipes';
 import { midiToFreq, noteToMidi, parseNoteList, scaleNotes } from './notes';
 import type { BodyProfile, HeadSegment, SolveSpec } from '../acoustics/solver';
@@ -229,12 +229,29 @@ export function resolve(d: Design): Resolved {
   let slabHalf = (section === 'round' ? maxBoreR : maxBoreR * pointScale * Math.SQRT2) + d.wall;
   // Block bodies hold the inlet socket inside them.
   if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') slabHalf = Math.max(slabHalf, socket.r + Math.max(2.4, d.wall * 0.8));
+  const behind = loopsBehind(d);
+  // Wall depth at each hole: the outside radius (round, r·k + wall, where k
+  // lets it clear a pointed bore roof) less how far the bore reaches in the
+  // drilling direction.
+  const k = section === 'round' ? 1 : pointScale * Math.SQRT2;
+  const sideReach = section === 'round' ? 1 : pointScale; // bore half-width
+  const roofReach = section === 'round' ? 1 : pointScale * Math.SQRT2; // bore to its point
   const chimney = (i: number, r: number) => {
-    if (isFlatStyle(d.bodyStyle)) return slabHalf - (section === 'round' ? r : r * pointScale * Math.SQRT2);
-    const back = isBackHole(fingers[nHoles - i - 1] ?? '');
-    const pointed = section === 'lemon' || (section === 'drop' && !back);
-    return pointed ? d.wall * Math.SQRT2 : d.wall;
+    const thumb = isBackHole(fingers[nHoles - i - 1] ?? '');
+    if (behind && !thumb) {
+      // Drilled through the front edge, in the plane of the bore. Block
+      // bodies square off the finger section at its widest.
+      const outside = d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded' ? Math.max(r0, r1) * k + d.wall : isFlatStyle(d.bodyStyle) ? r + d.wall : r * k + d.wall;
+      return outside - r * sideReach;
+    }
+    if (isFlatStyle(d.bodyStyle)) return slabHalf - r * (section === 'round' ? 1 : roofReach);
+    // Out of the plane: towards +z (front holes, or the side thumb hole when
+    // the loops go behind) or -z (a back thumb hole).
+    const up = !thumb || behind;
+    const intoRoof = section === 'lemon' || (section === 'drop' && up);
+    return r * k + d.wall - r * (intoRoof ? roofReach : sideReach);
   };
+
 
   const topHoleR = nHoles ? d.holeMax / 2 : 0;
   const spec: SolveSpec = {

@@ -83,6 +83,7 @@ export interface Design {
   thumbSpacing: number;
   meander: boolean;
   meanderSide: 'right' | 'left';
+  loopDirection: 'side' | 'back';
   bellFold: boolean;
   foldUpper: boolean;
   legLength: number;
@@ -169,6 +170,7 @@ export const DEFAULT_DESIGN: Design = {
   thumbSpacing: 14,
   meander: true,
   meanderSide: 'right',
+  loopDirection: 'side',
   bellFold: false,
   foldUpper: true,
   legLength: 0,
@@ -191,3 +193,8 @@ export const DEFAULT_DESIGN: Design = {
   resolution: 48,
   fitTest: true,
 };
+
+/** Folded body whose loops go behind the finger holes rather than to the side. */
+export function loopsBehind(d: Pick<Design, 'path' | 'loopDirection'>): boolean {
+  return d.path === 'folded' && d.loopDirection === 'back';
+}

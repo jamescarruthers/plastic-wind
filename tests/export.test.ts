@@ -26,6 +26,8 @@ function variants(): [string, Design][] {
     ['blocks, folded halves', { ...applyPreset({ ...DEFAULT_DESIGN }, 'crumhorn', 'bass'), bodyStyle: 'blocks' }],
     ['rounded blocks, dulcian with bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), bodyStyle: 'rounded' }],
     ['blocks, straight with pipe and spigot fit', { ...base, bodyStyle: 'blocks', pipeLengthMode: 'fixed', pipeLength: 120, bodyFit: 'spigot', matchPipeBore: false, boreDiameter: 10 }],
+    ['loops behind, halves, tube', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), loopDirection: 'back' }],
+    ['loops behind, halves, rounded blocks, bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), loopDirection: 'back', bodyStyle: 'rounded' }],
     ['custom list, no thumb hole', { ...base, rangeMode: 'list', noteList: 'D4 E4 F#4 G4 A4 B4 C#5', thumbHole: false }],
   ];
 }
@@ -59,25 +61,46 @@ describe('3MF export', () => {
   });
 });
 
-describe('bore topology', () => {
+describe('air path is open', () => {
+  const P = (fam: string, v: string, patch: Partial<Design>): Design => ({ ...applyPreset({ ...DEFAULT_DESIGN }, fam, v), ...patch }) as Design;
+  const one = { split: 'none', segment: false } as const;
   const cases: [string, Design][] = [
-    ['straight cylinder', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), split: 'none', segment: false }],
-    ['folded with loops and legs', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), split: 'none', segment: false }],
-    ['folded conical, bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), split: 'none', segment: false }],
-    ['square blocks, rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'blocks', split: 'none', segment: false }],
-    ['rounded blocks, bass clarinet', { ...applyPreset({ ...DEFAULT_DESIGN }, 'clarinet', 'bass'), bodyStyle: 'rounded', split: 'none', segment: false }],
-    ['flat slab, straight chalumeau', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), bodyStyle: 'slab', split: 'none', segment: false }],
-    ['flat slab, folded rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'slab', split: 'none', segment: false }],
-    ['flat slab, dulcian with bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), bodyStyle: 'slab', split: 'none', segment: false }],
-    ['webs between bends, rackett', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: 'web', split: 'none', segment: false }],
-    ['rounded blocks, straight chalumeau', { ...applyPreset({ ...DEFAULT_DESIGN }, 'chalumeau', 'alto'), bodyStyle: 'rounded', split: 'none', segment: false }],
+    ['straight cylinder, one piece', P('chalumeau', 'alto', one)],
+    ['straight, halves, rounded blocks', P('chalumeau', 'alto', { bodyStyle: 'rounded' })],
+    ['straight, flat slab', P('chalumeau', 'alto', { ...one, bodyStyle: 'slab' })],
+    ['rackett, loops and legs, tube', P('rackett', 'tenor', one)],
+    ['rackett, web', P('rackett', 'tenor', { ...one, bodyStyle: 'web' })],
+    ['rackett, slab', P('rackett', 'tenor', { ...one, bodyStyle: 'slab' })],
+    ['rackett, square blocks', P('rackett', 'tenor', { ...one, bodyStyle: 'blocks' })],
+    ['dulcian, bell turned up, tube', P('dulcian', 'alto', one)],
+    ['dulcian, bell turned up, slab', P('dulcian', 'alto', { ...one, bodyStyle: 'slab' })],
+    ['bass clarinet, rounded blocks', P('clarinet', 'bass', { ...one, bodyStyle: 'rounded' })],
+    ['bass oboe, tube', P('oboe', 'bass', one)],
+    ['loops behind, rackett, tube', P('rackett', 'tenor', { ...one, loopDirection: 'back' })],
+    ['loops behind, bass clarinet, tube', P('clarinet', 'bass', { ...one, loopDirection: 'back' })],
+    ['loops behind, great bass crumhorn, slab', P('crumhorn', 'greatbass', { ...one, loopDirection: 'back', bodyStyle: 'slab' })],
+    ['loops behind, tenor sax, square blocks', P('saxophone', 'tenor', { ...one, loopDirection: 'back', bodyStyle: 'blocks' })],
+    ['loops behind, bass dulcian, web', P('dulcian', 'bass', { ...one, loopDirection: 'back', bodyStyle: 'web' })],
+    ['loops behind, bass dulcian, rounded blocks', P('dulcian', 'bass', { ...one, loopDirection: 'back', bodyStyle: 'rounded' })],
+    ['loops behind, alto dulcian, halves', P('dulcian', 'alto', { loopDirection: 'back' })],
   ];
-  it.each(cases)('%s: genus is 1 + number of holes', async (_l, d) => {
-    const g = await generate(M, d);
-    const body = g.build!.print.find((p) => p.role === 'body')!;
-    const m = new M.Manifold(new M.Mesh({ numProp: 3, vertProperties: body.positions, triVerts: body.indices }));
-    expect(m.decompose().length).toBe(1);
-    expect(m.genus()).toBe(1 + g.lay.holes.length);
-    m.delete();
+  it.each(cases)('%s', async (_l, d) => {
+    const g = await generate(M, d, { verify: true });
+    const v = g.build!.verify!;
+    expect(v.bellOpen, 'bell open').toBe(true);
+    expect(v.strayOpenings, 'bore breaks through the wall').toBe(0);
+    for (const h of v.holes) {
+      expect(h.reachesBore, `hole ${h.number} reaches the bore`).toBe(true);
+      expect(h.breaksOut, `hole ${h.number} breaks out of the body`).toBe(true);
+    }
+    // One-piece bodies come out as a single solid.
+    if (d.split === 'none') {
+      const body = g.build!.print.find((p) => p.role === 'body')!;
+      const m = new M.Manifold(new M.Mesh({ numProp: 3, vertProperties: body.positions, triVerts: body.indices }));
+      const parts = m.decompose();
+      expect(parts.length).toBe(1);
+      parts.forEach((c) => c.delete());
+      m.delete();
+    }
   });
 });

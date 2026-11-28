@@ -1,7 +1,7 @@
 import './style.css';
 import { DEFAULT_DESIGN, type Design } from './model/design';
 import { applyPreset, findFamily } from './model/presets';
-import { DOUBLE_REED_DEFAULT_LENGTH, REEDS, FINGER_NAMES } from './model/derive';
+import { DOUBLE_REED_DEFAULT_LENGTH, REEDS } from './model/derive';
 import { GROUPS, type Field, type Option } from './ui/schema';
 import { Viewer, type ViewMesh } from './ui/viewer';
 import type { NoteRow, HoleRow } from './report';
@@ -371,7 +371,7 @@ function renderFingering() {
     const x = left + colW * i + colW / 2;
     add('text', { x, y: 20, 'text-anchor': 'middle', class: 'note' }, note.name);
     r.holes.forEach((h, k) => {
-      const back = h.face === 'back';
+      const back = h.face !== 'front';
       const y = top + rowH * k + rowH / 2;
       const closed = note.fingering[k];
       add('circle', { cx: back ? x - 9 : x, cy: y, r: back ? 7 : 9, class: closed ? 'closed' : 'open' });
@@ -379,7 +379,7 @@ function renderFingering() {
     if (note.second) add('text', { x, y: H - 14, 'text-anchor': 'middle', class: 'second' }, note.second.name);
   });
   add('text', { x: left - 10, y: H - 14, 'text-anchor': 'end', class: 'lbl' }, 'over');
-  pane.append(el('p', { class: 'hint' }, 'Filled = covered. Thumb holes are drawn offset to the left. Bottom row: the overblown note.'), el('div', { class: 'scroll-x' }, svg as unknown as HTMLElement));
+  pane.append(el('p', { class: 'hint' }, 'Filled = covered. Thumb holes (on the back, or the side when the loops go behind) are drawn offset to the left. Bottom row: the overblown note.'), el('div', { class: 'scroll-x' }, svg as unknown as HTMLElement));
 }
 
 function renderHoles() {
@@ -393,7 +393,7 @@ function renderHoles() {
     tb.append(
       el('tr', {},
         el('td', { class: 'mono strong' }, String(h.number)),
-        el('td', {}, FINGER_NAMES[h.finger] ?? h.finger),
+        el('td', {}, h.fingerName),
         el('td', { class: 'num' }, `${fmt(h.fromInlet)} mm`),
         el('td', { class: 'num' }, `${fmt(h.fromEnd)} mm`),
         el('td', { class: 'num' }, `${fmt(h.diameter)} mm`),
@@ -431,7 +431,7 @@ function renderBore() {
   };
   mk('path', { d: `${path(prof, 1)} ${path(prof.slice().reverse(), -1).replace(/^M/, 'L')} Z`, class: 'fill' });
   for (const h of r.holes) {
-    mk('line', { x1: sx(h.fromInlet), x2: sx(h.fromInlet), y1: 10, y2: H / 2, class: h.face === 'back' ? 'hole back' : 'hole' });
+    mk('line', { x1: sx(h.fromInlet), x2: sx(h.fromInlet), y1: 10, y2: H / 2, class: h.face !== 'front' ? 'hole back' : 'hole' });
     mk('text', { x: sx(h.fromInlet), y: 10, 'text-anchor': 'middle', class: 'lbl' }, String(h.number));
   }
   mk('text', { x: pad, y: H - 6, class: 'lbl' }, 'socket');

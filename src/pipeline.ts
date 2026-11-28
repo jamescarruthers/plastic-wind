@@ -16,14 +16,14 @@ export interface Generated {
   timings: Record<string, number>;
 }
 
-export async function generate(M: ManifoldToplevel | null, design: Design): Promise<Generated> {
+export async function generate(M: ManifoldToplevel | null, design: Design, opts: { verify?: boolean } = {}): Promise<Generated> {
   const t0 = performance.now();
   const res = resolve(design);
   const sol = solveInstrument(res.spec);
   const t1 = performance.now();
   const lay = layoutInstrument(res, sol);
   const t2 = performance.now();
-  const build = M ? await buildInstrument(M, res, sol, lay) : null;
+  const build = M ? await buildInstrument(M, res, sol, lay, opts) : null;
   const t3 = performance.now();
   const warnings = [...res.warnings, ...sol.warnings, ...lay.warnings, ...(build?.warnings ?? [])];
   return { res, sol, lay, build, warnings, timings: { solve: t1 - t0, layout: t2 - t1, geometry: t3 - t2 } };
