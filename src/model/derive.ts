@@ -36,7 +36,29 @@ export interface MouthpieceSpec {
   seat?: { kind: Design['doubleReedSeat']; topR: number; bottomR: number; depth: number; bocal?: { r0: number; r1: number; L: number } };
   windcap?: { innerR: number; length: number };
   // membrane
-  membrane?: { innerR: number; chamberDepth: number; base: number; nozzleR: number; nozzleWall: number; protrusion: number; pipeThrough: boolean };
+  membrane?: {
+    innerR: number;
+    chamberDepth: number;
+    base: number;
+    nozzleR: number;
+    nozzleWall: number;
+    protrusion: number;
+    pipeThrough: boolean;
+    wall: number;
+    /** Top of the outlet section, where the mouthpiece widens. */
+    z0: number;
+    /** 'up': the chamber floor height. */
+    zFloor: number;
+    /** 'front': the chamber faces -y; its axis is at height zc, its rim at
+     *  y = yRim, the inside of its back wall at yBack. The bore rises at
+     *  y = 0 to zc, then turns forwards into the nozzle. */
+    facing: 'up' | 'front';
+    zc: number;
+    yRim: number;
+    yBack: number;
+    /** Length of the nozzle bore, outlet to tip, as built. */
+    nozzleLength: number;
+  };
 }
 
 export type BoreSection = 'round' | 'lemon' | 'drop';
@@ -198,20 +220,51 @@ export function resolve(d: Design): Resolved {
     }
     baseCorrection = 3;
   } else {
-    const pipeThrough = d.membraneNozzle === 'pipe' && usePipe;
+    const front = d.membraneFacing === 'front';
+    const pipeThrough = d.membraneNozzle === 'pipe' && usePipe && !front;
     if (d.membraneNozzle === 'pipe' && !usePipe) warnings.push('A pipe nozzle needs an inlet pipe. Using a printed nozzle.');
+    else if (d.membraneNozzle === 'pipe' && front) warnings.push('The pipe cannot be the nozzle when the membrane faces forwards. Using a printed nozzle.');
+    const nozzleR = pipeThrough ? pipe.od / 2 : outletBoreR;
+    const nozzleWall = 1.6;
     const innerR = Math.max(d.membraneDiameter / 2, (pipeThrough ? pipe.od : outletBoreR * 2 + 3.2) / 2 + 6);
+    const wall = 2.4;
+    const chamberDepth = 14;
+    const base = 4;
+    const chOuter = innerR + wall;
+    // The outlet section: a spigot into the body, or a socket for the pipe
+    // with 2 mm of floor above the pipe end.
+    const outletDepth = outlet === 'spigot' ? sd - 0.5 : sd;
+    const z0 = outlet === 'spigot' ? outletDepth : outletDepth + 2;
+    const outletOuter = outlet === 'spigot' ? outletOuterR : outletOuterR + 2.4;
+    const boreBelowZ0 = outlet === 'spigot' ? z0 : 2; // bore inside the outlet section
+    // 'up': a 45° flare from the outlet out to the chamber, at least 2 mm.
+    const zFloor = z0 + Math.max(2, chOuter > outletOuter + 0.01 ? chOuter - outletOuter : 0);
+    // 'front': the chamber sits just above the outlet, in front of the riser.
+    const zc = z0 + chOuter + 1;
+    const yBack = -(nozzleR + 1.6);
+    const yRim = yBack - chamberDepth;
+    const nozzleLength = front
+      ? boreBelowZ0 + (zc - z0) + (-yRim + d.nozzleProtrusion)
+      : boreBelowZ0 + (zFloor - z0) + base + chamberDepth + d.nozzleProtrusion;
     mp.membrane = {
       innerR,
-      chamberDepth: 14,
-      base: 4,
-      nozzleR: pipeThrough ? pipe.od / 2 : outletBoreR,
-      nozzleWall: 1.6,
+      chamberDepth,
+      base,
+      nozzleR,
+      nozzleWall,
       protrusion: d.nozzleProtrusion,
       pipeThrough,
+      wall,
+      z0,
+      zFloor,
+      facing: front ? 'front' : 'up',
+      zc,
+      yRim,
+      yBack,
+      nozzleLength,
     };
     if (!pipeThrough) {
-      head.push({ L: 14 + d.nozzleProtrusion + 4 + spigotLen, r0: outletBoreR, r1: outletBoreR, label: 'Nozzle' });
+      head.push({ L: nozzleLength, r0: outletBoreR, r1: outletBoreR, label: 'Nozzle' });
     }
     baseCorrection = 2;
   }

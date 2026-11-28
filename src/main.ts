@@ -244,7 +244,7 @@ function update(key: keyof Design, value: unknown) {
     if (key === 'doubleReedSeat') design = { ...design, reedLength: DOUBLE_REED_DEFAULT_LENGTH[String(value)] ?? design.reedLength };
   }
   // Re-render the form when visibility may have changed.
-  const structural = ['bodyStyle', 'midPipe', 'loopDirection', 'alternateLoops', 'holeColumns', 'family', 'variant', 'exciter', 'singleReedMode', 'doubleReedSeat', 'membraneNozzle', 'pipe', 'pipeLengthMode', 'boreType', 'matchPipeBore', 'bell', 'rangeMode', 'path', 'meander', 'foldUpper', 'split', 'dowels', 'thumbHole', 'reedSize'];
+  const structural = ['bodyStyle', 'midPipe', 'loopDirection', 'alternateLoops', 'holeColumns', 'family', 'variant', 'exciter', 'singleReedMode', 'doubleReedSeat', 'membraneNozzle', 'membraneFacing', 'pipe', 'pipeLengthMode', 'boreType', 'matchPipeBore', 'bell', 'rangeMode', 'path', 'meander', 'foldUpper', 'split', 'dowels', 'thumbHole', 'reedSize'];
   if (structural.includes(key) || prev.family !== design.family) renderForm();
   if (key === 'family' || key === 'variant') viewer.resetFit();
   persist();

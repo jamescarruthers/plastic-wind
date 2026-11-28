@@ -28,6 +28,8 @@ function variants(): [string, Design][] {
     ['blocks, straight with pipe and spigot fit', { ...base, bodyStyle: 'blocks', pipeLengthMode: 'fixed', pipeLength: 120, bodyFit: 'spigot', matchPipeBore: false, boreDiameter: 10 }],
     ['loops behind, halves, tube', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), loopDirection: 'back' }],
     ['loops behind, halves, rounded blocks, bell turned up', { ...applyPreset({ ...DEFAULT_DESIGN }, 'dulcian', 'alto'), loopDirection: 'back', bodyStyle: 'rounded' }],
+    ['membrane facing forwards, with pipe', { ...base, exciter: 'membrane', membraneFacing: 'front', pipeLengthMode: 'auto' }],
+    ['membrane facing forwards, no pipe, loops behind', { ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), exciter: 'membrane', membraneFacing: 'front', loopDirection: 'back', blowTube: 'flat' }],
     ['custom list, no thumb hole', { ...base, rangeMode: 'list', noteList: 'D4 E4 F#4 G4 A4 B4 C#5', thumbHole: false }],
   ];
 }
@@ -225,8 +227,19 @@ describe('membrane blow tube', () => {
       pieces: body.m.decompose().length,
       genus: body.m.genus(),
       // The clamp ring where it sits when fitted.
-      clash: keep(body.m.intersect(keep(ring.m.translate([0, 0, ring.previewZ - body.previewZ])))).volume(),
+      clash: keep(body.m.intersect(ring.preview ?? keep(ring.m.translate([0, 0, ring.previewZ - body.previewZ])))).volume(),
       bottom: body.m.boundingBox().min[2],
+      front: body.m.boundingBox().min[1],
+      halves: (body.printAs ?? []).map((h) => ({ bottom: h.m.boundingBox().min[2], pieces: h.m.decompose().length })),
+      mb: g.res.mouthpiece.membrane!,
+      head: g.res.spec.head.find((h) => h.label === 'Nozzle')?.L,
+      // Highest point inside the chamber's rim, facing up: the nozzle tip.
+      nozzleTop: (() => {
+        const mb = g.res.mouthpiece.membrane!;
+        const r = mb.innerR - 0.5;
+        const inner = keep(body.m.intersect(keep(keep(M.Manifold.cylinder(60, r, r, 48)).translate([0, 0, mb.zFloor + mb.base + 1]))));
+        return inner.isEmpty() ? -Infinity : inner.boundingBox().max[2];
+      })(),
     };
     kept.forEach((m) => m.delete());
     return out;
@@ -243,6 +256,39 @@ describe('membrane blow tube', () => {
       expect(flat.clash).toBeLessThan(0.01);
       // Still stands on its outlet.
       expect(Math.abs(flat.bottom - angled.bottom)).toBeLessThan(1e-6);
+    });
+  }
+
+  it('facing up, printed nozzle: stands in the chamber, proud of the rim, and the model uses its length', async () => {
+    const r = await mouthpiece({ ...base, exciter: 'membrane', membraneNozzle: 'printed', pipeLengthMode: 'auto' });
+    const zRim = r.mb.zFloor + r.mb.base + r.mb.chamberDepth;
+    expect(r.nozzleTop).toBeCloseTo(zRim + r.mb.protrusion, 3);
+    expect(r.head).toBeCloseTo(r.mb.nozzleLength, 6);
+    // Outlet socket floor to nozzle tip.
+    expect(r.mb.nozzleLength).toBeCloseTo(zRim + r.mb.protrusion - g0(r.mb), 6);
+  });
+  const g0 = (mb: { z0: number }) => mb.z0 - 2; // the pipe ends 2 mm below the top of the socket section
+  for (const [label, patch] of [
+    ['with pipe, angled tube', { pipeLengthMode: 'auto', blowTube: 'angled' }],
+    ['with pipe, flat tube', { pipeLengthMode: 'auto', blowTube: 'flat' }],
+    ['no pipe, angled tube', { pipeLengthMode: 'none', blowTube: 'angled' }],
+  ] as [string, Partial<Design>][]) {
+    it(`facing forwards, ${label}: one solid, two air paths, clear of the ring, prints in halves`, async () => {
+      const r = await mouthpiece({ ...base, exciter: 'membrane', membraneFacing: 'front', ...patch } as Design);
+      expect(r.mb.facing).toBe('front');
+      expect(r.pieces).toBe(1);
+      expect(r.genus).toBe(2);
+      expect(r.clash).toBeLessThan(0.01);
+      expect(r.bottom).toBeCloseTo(0, 6);
+      // The nozzle tip is the front of the mouthpiece.
+      expect(r.front).toBeCloseTo(r.mb.yRim - r.mb.protrusion, 3);
+      // The tuning model uses the bore as built.
+      expect(r.head).toBeCloseTo(r.mb.nozzleLength, 6);
+      expect(r.halves.length).toBe(2);
+      for (const h of r.halves) {
+        expect(h.bottom).toBeCloseTo(0, 6);
+        expect(h.pieces).toBe(1);
+      }
     });
   }
 });

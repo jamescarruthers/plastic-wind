@@ -737,14 +737,34 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     }
     // Mouthpiece on the end of the run, its axis along the last piece.
     const mpOrigin: V3 = [runEnd[0] - runDir[0] * mpb.pipeTopZ, runEnd[1] - runDir[1] * mpb.pipeTopZ, 0];
+    const phi = (Math.atan2(runDir[1], runDir[0]) * 180) / Math.PI - 90;
+    // Turn the mouthpiece about its own axis so its front (local -y) faces
+    // the same way as the finger holes: +z, or the front edge when the
+    // loops go behind. The rest of the placement sends local (x, y, z) to
+    // (x, z, -y) and then turns it by phi about z.
+    const holeFront = lay.holes.find((h) => h.face === 'front')?.dir ?? [0, 0, 1];
+    const c = Math.cos((phi * Math.PI) / 180);
+    const sn = Math.sin((phi * Math.PI) / 180);
+    let psi = 0;
+    let best = -Infinity;
+    for (const a of [0, 90, 180, 270]) {
+      const r = (a * Math.PI) / 180;
+      const v: V3 = [Math.sin(r), -Math.cos(r), 0]; // local -y turned by a about z
+      const w: V3 = [v[0], v[2], -v[1]];
+      const dot = (w[0] * c - w[1] * sn) * holeFront[0] + (w[0] * sn + w[1] * c) * holeFront[1] + w[2] * holeFront[2];
+      if (dot > best + 1e-9) {
+        best = dot;
+        psi = a;
+      }
+    }
     const place = (m: Manifold, z: number): Manifold => {
-      const phi = (Math.atan2(runDir[1], runDir[0]) * 180) / Math.PI - 90;
       const o: V3 = [mpOrigin[0] + runDir[0] * z, mpOrigin[1] + runDir[1] * z, 0];
-      return keep(keep(keep(m.rotate([-90, 0, 0])).rotate([0, 0, phi])).translate(o));
+      return keep(keep(keep(keep(m.rotate([0, 0, psi])).rotate([-90, 0, 0])).rotate([0, 0, phi])).translate(o));
     };
     for (const p of mpb.parts) {
-      preview.push(toMesh(pv(place(p.m, p.previewZ)), p.name, p.role, p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory));
-      print.push(toMesh(p.m, p.name, p.role, p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory, p.note));
+      const color = p.role === 'mouthpiece' ? COLORS.mouthpiece : COLORS.accessory;
+      preview.push(toMesh(pv(p.preview ? place(p.preview, 0) : place(p.m, p.previewZ)), p.name, p.role, color));
+      for (const q of p.printAs ?? [{ name: p.name, m: p.m, note: p.note }]) print.push(toMesh(q.m, q.name, p.role, color, q.note));
     }
     runPieces.forEach((q, i) => {
       const tube = keep(cylAlong(q.p, q.dir, q.len, res.pipe.od / 2).subtract(cylAlong([q.p[0] - q.dir[0], q.p[1] - q.dir[1], 0], q.dir, q.len + 2, res.pipe.id_ / 2)));
