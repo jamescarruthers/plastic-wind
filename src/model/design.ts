@@ -85,6 +85,8 @@ export interface Design {
   /** 'alternate' is kept only so older saved designs still load. */
   meanderSide: 'right' | 'left' | 'alternate';
   alternateLoops: boolean;
+  holeColumns: boolean;
+  columnGap: number;
   loopDirection: 'side' | 'back';
   bellFold: boolean;
   midPipe: boolean;
@@ -175,6 +177,8 @@ export const DEFAULT_DESIGN: Design = {
   meander: true,
   meanderSide: 'right',
   alternateLoops: false,
+  holeColumns: false,
+  columnGap: 0,
   loopDirection: 'side',
   bellFold: false,
   midPipe: false,

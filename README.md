@@ -45,6 +45,13 @@ the bore.
   you choose, so the instrument
   balances about the finger holes. Folded legs then cross over above the top
   hole and run down beyond the loops.
+- *Two columns of holes*: the left-hand holes run down one column; the bore
+  turns at the bottom, climbs back to the top and the right-hand holes run
+  down a second column beside them. Climbing back takes about a column's
+  height of bore between the hands, so the columns line up fully only when
+  that much lies between them (for example a fourth or fifth between the
+  hands on a bass instrument). Otherwise the second column starts lower, and
+  the app says by how much.
 - *Joining pipe*: the hole-free upper bore prints as its own block, joined to
   the finger block by a length of the inlet pipe size. The pipe is part of
   the bore in the acoustic model, and saves printing.

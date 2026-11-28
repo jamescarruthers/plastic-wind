@@ -42,7 +42,7 @@ export interface Layout {
   radiusAt: (s: number) => number;
   loops: number;
   legs: number;
-  spacings: { from: number; to: number; dy: number }[];
+  spacings: { from: number; to: number; dy: number; across?: boolean }[];
   warnings: string[];
 }
 
@@ -115,7 +115,9 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   const fl = new Turtle([0, 0], DOWN);
   fl.forward(topMargin);
   let raised = false;
-  for (let k = 0; k + 1 < holes.length; k++) {
+  // One gap between holes k and k + 1. `pickSide` gives the side for a
+  // loop, and is called only when a loop is made.
+  const gapRun = (k: number, pickSide: () => number) => {
     const a = holes[k];
     const b = holes[k + 1];
     const dL = b.s - a.s;
@@ -136,7 +138,7 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
       if (target < minDy) raised = true;
       const arm = extra / 2;
       const slack = (dy - minDy) / 2;
-      const ls = nextSide();
+      const ls = pickSide();
       fl.forward(va + slack);
       fl.group = 10 + k;
       fl.turn((ls * Math.PI) / 2, R);
@@ -158,7 +160,7 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
         dy2 = 4 * R * Math.sin(th);
       }
       const v = Math.max(0, (dL - 4 * R * th) / 2);
-      const ls = nextSide();
+      const ls = pickSide();
       fl.forward(v);
       fl.group = 10 + k;
       fl.turn(ls * th, R);
@@ -173,6 +175,70 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
       fl.forward(dL);
       spacings.push({ from: a.number, to: b.number, dy: dL });
     }
+    };
+
+  // Two columns: the holes up to the change of hands run down one column;
+  // the bore turns at the bottom, climbs back to the top and comes down a
+  // second column beside it for the rest.
+  const columns = d.holeColumns && !behind && holes.length >= 3;
+  if (d.holeColumns && behind) warnings.push('Two columns of holes need the loops at the side; they are ignored while the loops go behind.');
+  const colSide = d.meanderSide === 'left' ? -1 : 1; // where the second column goes
+  let split = -1;
+  if (columns) {
+    split = holes.findIndex((h, k) => k > 0 && holes[k - 1].finger === 'L3' && h.finger === 'R1');
+    if (split < 1) split = Math.ceil(holes.length / 2);
+  }
+  const yFirst = fl.pos[1]; // first hole, top of the first column
+  const columnTurn = (k: number): boolean => {
+    const a = holes[k];
+    const b = holes[k + 1];
+    const dL = b.s - a.s;
+    const Rb = maxR(a.s, b.s) + d.bendWall / 2;
+    const gapX = Math.max(4 * Rb, d.columnGap || 0);
+    const w = (gapX - 4 * Rb) / 2; // straight across the middle of each U
+    const y4 = fl.pos[1];
+    const below = a.diameter / 2 + 2; // straight under the last hole of column one
+    const above = b.diameter / 2 + d.wall + 2; // bore above the first hole of column two
+    const fixed = 2 * Math.PI * Rb + 2 * w + 2 * above;
+    // Path length: (y4 − yBot) + U + (yTop − yBot) + U + (yTop − y5), with
+    // yTop = y5 + above. Aim for y5 level with the first hole.
+    let y5 = yFirst;
+    let yBot = (y4 + y5 + fixed - dL) / 2;
+    if (yBot > y4 - below) {
+      yBot = y4 - below;
+      y5 = dL - y4 + 2 * yBot - fixed;
+    }
+    const yTop = y5 + above;
+    if (yTop - yBot < 0) return false;
+    fl.forward(y4 - yBot);
+    fl.group = 6;
+    fl.turn((colSide * Math.PI) / 2, Rb);
+    fl.forward(w);
+    fl.turn((colSide * Math.PI) / 2, Rb);
+    fl.forward(yTop - yBot);
+    fl.turn((-colSide * Math.PI) / 2, Rb);
+    fl.forward(w);
+    fl.turn((-colSide * Math.PI) / 2, Rb);
+    fl.group = 7;
+    fl.forward(yTop - y5);
+    spacings.push({ from: a.number, to: b.number, dy: 0, across: true });
+    if (y5 < yFirst - 1) {
+      const needed = yFirst - y4 + 2 * below + fixed;
+      warnings.push(
+        `Holes ${a.number} and ${b.number} are ${dL.toFixed(0)} mm apart along the bore; climbing back level with hole 1 needs about ${needed.toFixed(0)} mm. The second column starts ${(yFirst - y5).toFixed(0)} mm lower than the first. Lower instruments and narrower bores leave more room.`,
+      );
+    }
+    return true;
+  };
+  for (let k = 0; k + 1 < holes.length; k++) {
+    if (columns && k === split - 1) {
+      if (columnTurn(k)) continue;
+      warnings.push(`Holes ${holes[k].number} and ${holes[k + 1].number} are too close along the bore to turn back up for a second column, so the holes stay in one line.`);
+      gapRun(k, () => colSide);
+      continue;
+    }
+    // In columns, loops go to the outside of each column.
+    gapRun(k, columns ? () => (k < split - 1 ? -colSide : colSide) : nextSide);
   }
   const last = holes[holes.length - 1];
   const tail = Lb - last.s;
@@ -233,7 +299,7 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
   // When loops sit on the legs' side too (behind, or alternating), the legs
   // cross over above the top hole and fold down beyond the loops' reach.
   const reach = legX > 0 ? flBounds.max[0] : -flBounds.min[0];
-  const useCross = behind || (alternate && reach > 0.5);
+  const useCross = behind || reach > 0.5;
   const X1 = useCross && reach > 0.5 ? reach + maxR(sTop, Lb) + rU + d.bendWall : 2 * R1;
   const cross = useCross ? Math.max(0, X1 - 2 * Rl) : 0;
   // Length used: e + 2n·h + first bend + (2n − 1)·π·Rl, where the first bend
@@ -323,7 +389,7 @@ export function layoutInstrument(res: Resolved, sol: SolveResult): Layout {
     for (const sp of spacings) {
       const a = placed[sp.from - 1];
       const b = placed[sp.to - 1];
-      const bothFront = a.face === 'front' && b.face === 'front';
+      const bothFront = a.face === 'front' && b.face === 'front' && !sp.across;
       if (bothFront && sp.dy > 38) {
         warnings.push(
           d.path === 'folded' && d.meander

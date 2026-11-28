@@ -158,6 +158,23 @@ export const GROUPS: Group[] = [
         show: (d) => d.path === 'folded' && d.meander && d.loopDirection !== 'back',
       },
       {
+        key: 'holeColumns',
+        label: 'Two columns of holes, side by side',
+        type: 'checkbox',
+        help: 'Left-hand holes run down one column; the bore climbs back to the top and the right-hand holes run down a second column beside them. Needs a long gap between the hands, so suits bass instruments.',
+        show: (d) => d.path === 'folded' && d.loopDirection !== 'back',
+      },
+      {
+        key: 'columnGap',
+        label: 'Distance between the columns (0 = closest)',
+        type: 'number',
+        unit: 'mm',
+        step: 1,
+        min: 0,
+        max: 200,
+        show: (d) => d.path === 'folded' && d.loopDirection !== 'back' && d.holeColumns,
+      },
+      {
         key: 'alternateLoops',
         label: 'Alternate sides (balanced)',
         type: 'checkbox',
