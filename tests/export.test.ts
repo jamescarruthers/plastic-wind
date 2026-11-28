@@ -185,3 +185,28 @@ describe('pipe run with printed U-bends', () => {
     for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
   });
 });
+
+describe('edge chamfer on flat bodies', () => {
+  const P = (style: string, chamfer: number): Design =>
+    ({ ...applyPreset({ ...DEFAULT_DESIGN }, 'rackett', 'tenor'), bodyStyle: style, edgeChamfer: chamfer, split: 'none', segment: false }) as Design;
+
+  it.each(['slab', 'blocks', 'rounded'])('%s: bevels the edges and keeps the air path open', async (style) => {
+    const plain = await generate(M, P(style, 0));
+    const bevelled = await generate(M, P(style, 2), { verify: true });
+    const vol = (g: typeof plain) => g.build!.print.filter((p) => p.role === 'body').reduce((a, p) => a + p.volume, 0);
+    const size = (g: typeof plain) => g.build!.print.find((p) => p.role === 'body')!.size;
+    // Same overall size; material taken off the edges.
+    expect(size(bevelled)[2]).toBeCloseTo(size(plain)[2], 3);
+    expect(vol(bevelled)).toBeLessThan(vol(plain) * 0.99);
+    const v = bevelled.build!.verify!;
+    expect(v.bellOpen).toBe(true);
+    expect(v.strayOpenings).toBe(0);
+    for (const h of v.holes) expect(h.reachesBore && h.breaksOut).toBe(true);
+  });
+
+  it('limits a chamfer deeper than the wall allows, with a warning', async () => {
+    const g = await generate(null, P('slab', 10));
+    expect(g.res.chamfer).toBeCloseTo(DEFAULT_DESIGN.wall - 0.5, 6);
+    expect(g.warnings.some((w) => /edge chamfer is limited/.test(w))).toBe(true);
+  });
+});

@@ -9,6 +9,7 @@ import type { Path } from './path';
 import { buildMouthpiece } from './mouthpiece';
 import { boreProfile } from './profile';
 import { buildUBend } from './ubend';
+import { chamferedExtrude } from './flat';
 import { isFlatStyle, loopsBehind } from '../model/design';
 
 type V3 = [number, number, number];
@@ -201,7 +202,8 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
       }
       len = Math.max(len, 1);
       const pt = (a: number, b: number): [number, number] => [e.p[0] + nn[0] * a + t[0] * b, e.p[1] + nn[1] * a + t[1] * b];
-      let poly = [pt(-rb, -0.5), pt(rb, -0.5), pt(rb, len), pt(-rb, len)];
+      // Starts at the bell end itself: starting inside would notch the end.
+      let poly = [pt(-rb, 0), pt(rb, 0), pt(rb, len), pt(-rb, len)];
       if (signedArea(poly) < 0) poly = poly.reverse();
       return keep(new CrossSection([poly]));
     };
@@ -332,15 +334,14 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
         outline = keep(outline.subtract(toCs(gap)));
       }
       outline = keep(outline.subtract(mouthChannel()));
-      const half = slabHalfFor();
-      return keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
+      return chamferedExtrude(M, keep, outline, slabHalfFor(), res.chamfer);
     };
 
     // ---------------- Outer body
     const outerParts: Manifold[] = [];
     const cavities: Manifold[] = [];
     if (d.bodyStyle === 'slab') {
-      outerParts.push(slab(path, ro, slabHalfFor(), mouthChannel(), inJoint, jointKeepOut()));
+      outerParts.push(slab(path, ro, slabHalfFor(), mouthChannel(), inJoint, jointKeepOut(), res.chamfer));
     } else if (d.bodyStyle === 'blocks' || d.bodyStyle === 'rounded') {
       outerParts.push(blocks(d.bodyStyle === 'rounded'));
     } else {
@@ -832,6 +833,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     keepOut?: ReturnType<typeof CrossSection.circle>,
     skip: (s: number) => boolean = () => false,
     gapKeepOut?: ReturnType<typeof CrossSection.circle> | null,
+    chamfer = 0,
   ): Manifold {
     const ss = path.samples(4, Math.PI / 24).filter((s) => !skip(s));
     const segs = 48;
@@ -862,7 +864,7 @@ export async function buildInstrument(M: ManifoldToplevel, res: Resolved, sol: S
     outline = keep(outline.subtract(keep(new CrossSection([cut]))));
     if (keepOut) outline = keep(outline.subtract(keepOut));
     if (gapKeepOut) outline = keep(outline.subtract(gapKeepOut));
-    return keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
+    return chamferedExtrude(M, keep, outline, half, chamfer);
   }
 
   function toMesh(m: Manifold, name: string, role: PartMesh['role'], color: string, note?: string): PartMesh {

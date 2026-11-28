@@ -100,6 +100,8 @@ export interface Design {
   // Body
   wall: number;
   bodyStyle: BodyStyle;
+  /** 45° bevel on the front and back edges of flat bodies, mm. */
+  edgeChamfer: number;
 
   // Printing
   split: SplitMode;
@@ -192,6 +194,7 @@ export const DEFAULT_DESIGN: Design = {
 
   wall: 3,
   bodyStyle: 'tube',
+  edgeChamfer: 1.5,
 
   split: 'halves',
   boreShape: 'round',

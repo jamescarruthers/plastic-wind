@@ -69,7 +69,9 @@ and the cut length of each, allowing for the bore inside each bend.
 **Body shape.** A tube that follows the bore, a tube with webs filling the
 bends, a flat slab that follows the bore, or flat blocks: one rectangle per
 loop, leg group and the finger line, with square or rounded corners and the
-inlet socket sunk into the body.
+inlet socket sunk into the body. Flat bodies (and their printed U-bends) can
+have their front and back edges chamfered to sit comfortably in the hands; the
+chamfer size is adjustable up to the wall thickness less 0.5 mm.
 
 **Printing.**
 - One piece, or two halves split along the bore and glued. The split plane

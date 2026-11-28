@@ -14,6 +14,7 @@ import type { Manifold } from 'manifold-3d';
 import type { ManifoldToplevel } from './manifold';
 import type { Resolved } from '../model/derive';
 import { boreProfile } from './profile';
+import { chamferedExtrude } from './flat';
 
 export function buildUBend(M: ManifoldToplevel, res: Resolved, keep: <T extends { delete(): void }>(m: T) => T): Manifold {
   const { Manifold, CrossSection } = M;
@@ -69,7 +70,7 @@ export function buildUBend(M: ManifoldToplevel, res: Resolved, keep: <T extends 
         outline = keep(CrossSection.union([outline, rect(-so, -depth, 2 * R + so, -depth + so)]));
       } else outline = box;
     }
-    body = keep(keep(Manifold.extrude(outline, 2 * half)).translate([0, 0, -half]));
+    body = chamferedExtrude(M, keep, outline, half, res.chamfer);
   }
 
   // ---- Bore and sockets

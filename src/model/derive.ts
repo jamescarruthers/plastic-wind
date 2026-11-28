@@ -47,6 +47,8 @@ export interface Resolved {
   section: BoreSection;
   /** Half thickness of a flat body (slab or blocks). */
   slabHalf: number;
+  /** Edge chamfer for flat bodies, limited so it never reaches the bore. */
+  chamfer: number;
   pipe: PipeSize;
   usePipe: boolean;
   midi: number[];
@@ -303,9 +305,19 @@ export function resolve(d: Design): Resolved {
     }
   }
 
+  // Edge chamfer: at the open ends it cuts across the wall over the bore, so
+  // it must stay under the wall thickness.
+  const chamferMax = Math.max(0, d.wall - 0.5);
+  let chamfer = 0;
+  if (isFlatStyle(d.bodyStyle) && d.edgeChamfer > 0) {
+    chamfer = Math.min(d.edgeChamfer, chamferMax);
+    if (d.edgeChamfer > chamferMax + 1e-9) warnings.push(`The edge chamfer is limited to ${chamferMax.toFixed(1)} mm (the wall less 0.5 mm) so it cannot cut into the bore at the ends. A thicker wall allows more.`);
+  }
+
   return {
     d,
     joint,
+    chamfer,
     pipeBend,
     pipeRun: null,
     section,
