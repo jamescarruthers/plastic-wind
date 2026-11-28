@@ -35,6 +35,11 @@ left out (the mouthpiece plugs into the body), cut to a length you choose, or
 given a calculated length so that cheap pipe replaces the hole-free part of
 the bore.
 
+**Pipe instead of print.** With "pipe replaces the plain upper bore", the body
+starts just above the top hole and a length of pipe makes up the rest. A long
+pipe can be folded with printed U-bends: the app gives the number of pieces
+and the cut length of each, allowing for the bore inside each bend.
+
 **Air path.**
 - *Straight*.
 - *Folded with U-bends*: loops to one side between finger holes keep the holes

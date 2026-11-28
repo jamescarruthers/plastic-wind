@@ -126,3 +126,40 @@ describe('air path is open', () => {
     if (g.res.joint && d.boreType === 'cylindrical') for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
   });
 });
+
+describe('pipe run with printed U-bends', () => {
+  const P = (fam: string, v: string, patch: Partial<Design>): Design => ({ ...applyPreset({ ...DEFAULT_DESIGN }, fam, v), ...patch }) as Design;
+
+  it.each([
+    ['bass clarinet, 2 bends, 22 mm copper', P('clarinet', 'bass', { pipeLengthMode: 'auto', pipeBends: 2 })],
+    ['great bass crumhorn, 3 bends, overflow pipe', P('crumhorn', 'greatbass', { pipeLengthMode: 'auto', pipeBends: 3 })],
+  ])('%s', async (_l, d) => {
+    const g = await generate(M, d, { verify: true });
+    const run = g.res.pipeRun!;
+    expect(run.bends).toBe(d.pipeBends);
+    // Pieces plus the bore inside the bends add up to the solved pipe.
+    expect(run.pieces * run.pieceLength + run.bends * g.res.pipeBend!.uLen).toBeCloseTo(g.sol.pipeLength, 6);
+    expect(run.pieceLength).toBeGreaterThanOrEqual(g.res.pipeBend!.minPiece);
+    // Still in tune: the bends are bore of the pipe's own size.
+    for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
+    // Each fitting is one solid with one path through it (genus 1).
+    const fittings = g.build!.print.filter((p) => p.name.startsWith('Pipe U-bend'));
+    expect(fittings.length).toBe(run.bends);
+    for (const f of fittings) {
+      const m = new M.Manifold(new M.Mesh({ numProp: 3, vertProperties: f.positions, triVerts: f.indices }));
+      expect(m.decompose().length).toBe(1);
+      expect(m.genus()).toBe(1);
+      m.delete();
+    }
+    expect(g.build!.verify!.bellOpen).toBe(true);
+  });
+
+  it('drops bends that leave pieces too short to reach both sockets', async () => {
+    const g = await generate(null, P('clarinet', 'bb', { pipeLengthMode: 'auto', pipeBends: 6 }));
+    const run = g.res.pipeRun!;
+    expect(run.bends).toBeLessThan(6);
+    expect(run.pieceLength).toBeGreaterThanOrEqual(g.res.pipeBend!.minPiece);
+    expect(g.warnings.some((w) => /only has room for/.test(w))).toBe(true);
+    for (const n of g.sol.notes) expect(Math.abs(n.cents)).toBeLessThan(2);
+  });
+});

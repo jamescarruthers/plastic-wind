@@ -62,6 +62,8 @@ export interface Design {
   pipeId: number;
   pipeLengthMode: PipeLengthMode;
   pipeLength: number;
+  /** Printed U-bends joining pieces of the inlet pipe. */
+  pipeBends: number;
   bodyFit: 'socket' | 'spigot';
   clearance: number;
   socketDepth: number;
@@ -157,6 +159,7 @@ export const DEFAULT_DESIGN: Design = {
   pipeId: 13.6,
   pipeLengthMode: 'none',
   pipeLength: 100,
+  pipeBends: 0,
   bodyFit: 'socket',
   clearance: 0.25,
   socketDepth: 16,
